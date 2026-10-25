@@ -32,7 +32,7 @@ export const registration = z.object({
   birthDate,
   password: z
     .string()
-    .min(8)
+    .min(6)
     .max(128)
     .refine((value) => value.trim().length > 0),
   privacyConsent: z.literal(true),

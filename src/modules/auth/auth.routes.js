@@ -11,7 +11,7 @@ export async function mountAuth(app, db, config) {
     const parsed = registration.safeParse(req.body);
     if (!parsed.success)
       return res.status(400).json({
-        message: 'กรุณาตรวจสอบข้อมูล รหัสผ่านอย่างน้อย 8 ตัว และการยอมรับนโยบาย',
+        message: 'กรุณาตรวจสอบข้อมูล รหัสผ่านอย่างน้อย 6 ตัว และการยอมรับนโยบาย',
       });
     const { password, birthDate, privacyConsent, ...data } = parsed.data;
     if (

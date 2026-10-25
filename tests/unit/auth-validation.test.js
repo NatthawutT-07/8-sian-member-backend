@@ -16,9 +16,14 @@ test('rejects missing consent and invalid mobile', () => {
   for (const patch of [{ privacyConsent: false }, { phone: '123' }, { firstName: ' ' }])
     assert.equal(registration.safeParse({ ...valid, ...patch }).success, false);
 });
-test('rejects weak passwords', () => {
-  for (const patch of [{ password: '1234' }, { password: 'x'.repeat(129) }])
+test('rejects passwords outside the supported length', () => {
+  for (const patch of [{ password: '12345' }, { password: 'x'.repeat(129) }])
     assert.equal(registration.safeParse({ ...valid, ...patch }).success, false);
+});
+test('accepts six-character numeric, alphabetic and symbol passwords without composition rules', () => {
+  for (const password of ['123456', 'abcdef', '!@#$%^', 'x'.repeat(128)])
+    assert.equal(registration.safeParse({ ...valid, password }).success, true);
+  assert.equal(registration.safeParse({ ...valid, password: ' '.repeat(6) }).success, false);
 });
 test('requires real birthday within allowed range', () => {
   for (const birthDate of [
