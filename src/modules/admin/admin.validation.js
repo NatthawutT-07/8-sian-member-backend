@@ -8,6 +8,7 @@ export const campaignInput = z.object({
   description: z.string().trim().min(1).max(500),
   extraPrice: z.number().int().min(0).max(100000),
   validityDays: z.number().int().min(1).max(365),
+  prerequisiteCampaignId: z.string().trim().min(1).max(100).nullable().optional(),
 });
 export const resetInput = z.object({
   newPassword: z.string().min(8).max(128),

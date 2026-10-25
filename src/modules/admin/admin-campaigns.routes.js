@@ -1,10 +1,11 @@
 import { parseBody as parse } from '../../shared/http-validation.js';
 import { campaignInput } from './admin.validation.js';
+import { prerequisiteInclude } from '../coupons/campaign-access.js';
 
 export function mountAdminCampaigns(app, db) {
   app.get('/api/admin/campaigns', async (req, res) => {
     const campaigns = await db.campaign.findMany({
-      include: { _count: { select: { coupons: true } } },
+      include: { ...prerequisiteInclude, _count: { select: { coupons: true } } },
       orderBy: { createdAt: 'desc' },
     });
     res.json({ campaigns });
@@ -12,13 +13,26 @@ export function mountAdminCampaigns(app, db) {
   app.post('/api/admin/campaigns', async (req, res) => {
     const data = parse(campaignInput, req.body, res);
     if (!data) return;
+    if (
+      data.prerequisiteCampaignId &&
+      !(await db.campaign.findUnique({
+        where: { id: data.prerequisiteCampaignId },
+        select: { id: true },
+      }))
+    ) {
+      return res.status(400).json({ message: 'ไม่พบแคมเปญก่อนหน้าที่เลือก' });
+    }
     const campaign = await db.$transaction(async (tx) => {
       const created = await tx.campaign.create({ data });
       await tx.auditLog.create({
         data: {
           actor: req.admin.id,
           action: 'CREATE_CAMPAIGN',
-          details: { campaignId: created.id, title: created.title },
+          details: {
+            campaignId: created.id,
+            title: created.title,
+            prerequisiteCampaignId: created.prerequisiteCampaignId,
+          },
         },
       });
       return created;

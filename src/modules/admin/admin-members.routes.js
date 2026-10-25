@@ -2,6 +2,12 @@ import rateLimit from 'express-rate-limit';
 import { parseBody as parse } from '../../shared/http-validation.js';
 import { grantInput, resetInput } from './admin.validation.js';
 import { verifyPassword, hashPassword } from '../../shared/security.js';
+import {
+  campaignAccess,
+  prerequisiteInclude,
+  requireCampaignAccess,
+  usedCampaignsFor,
+} from '../coupons/campaign-access.js';
 const memberFields = {
   id: true,
   memberNumber: true,
@@ -59,10 +65,10 @@ export function mountAdminMembers(app, db) {
       select: memberFields,
     });
     if (!member) return res.status(404).json({ message: 'ไม่พบสมาชิก' });
-    const [coupons, audits] = await Promise.all([
+    const [coupons, audits, used] = await Promise.all([
       db.coupon.findMany({
         where: { memberId: member.id },
-        include: { offer: true },
+        include: { offer: { include: prerequisiteInclude } },
         orderBy: { issuedAt: 'desc' },
         take: 100,
       }),
@@ -71,9 +77,11 @@ export function mountAdminMembers(app, db) {
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
+      usedCampaignsFor(db, member.id),
     ]);
     res.json({
       member: memberView(member),
+      usedCampaignIds: [...used],
       coupons: coupons.map((c) => ({
         id: c.id,
         campaignId: c.campaign,
@@ -81,7 +89,14 @@ export function mountAdminMembers(app, db) {
         issuedAt: c.issuedAt,
         expiresAt: c.expiresAt,
         usedAt: c.usedAt,
-        status: c.usedAt ? 'USED' : c.expiresAt <= new Date() ? 'EXPIRED' : 'AVAILABLE',
+        ...campaignAccess(c.offer, used),
+        status: c.usedAt
+          ? 'USED'
+          : c.expiresAt <= new Date()
+            ? 'EXPIRED'
+            : campaignAccess(c.offer, used).locked
+              ? 'LOCKED'
+              : 'AVAILABLE',
       })),
       audits,
     });
@@ -91,12 +106,16 @@ export function mountAdminMembers(app, db) {
     if (!data) return;
     const [member, campaign] = await Promise.all([
       db.member.findUnique({ where: { id: req.params.id }, select: { id: true } }),
-      db.campaign.findUnique({ where: { id: data.campaignId } }),
+      db.campaign.findUnique({ where: { id: data.campaignId }, include: prerequisiteInclude }),
     ]);
     if (!member) return res.status(404).json({ message: 'ไม่พบสมาชิก' });
     if (!campaign?.active) return res.status(400).json({ message: 'แคมเปญนี้ไม่เปิดแจกคูปอง' });
     try {
       const coupon = await db.$transaction(async (tx) => {
+        const rows =
+          await tx.$queryRaw`SELECT "active" FROM "Campaign" WHERE "id" = ${campaign.id} FOR SHARE`;
+        if (!rows[0]?.active) return null;
+        await requireCampaignAccess(tx, member.id, campaign);
         const now = new Date();
         const issued = await tx.coupon.create({
           data: {
@@ -116,6 +135,7 @@ export function mountAdminMembers(app, db) {
         });
         return issued;
       });
+      if (!coupon) return res.status(400).json({ message: 'แคมเปญนี้ไม่เปิดแจกคูปอง' });
       res.status(201).json({ coupon, message: 'แจกคูปองให้สมาชิกแล้ว' });
     } catch (e) {
       if (e.code === 'P2002')

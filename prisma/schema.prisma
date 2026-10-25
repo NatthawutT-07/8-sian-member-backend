@@ -50,6 +50,10 @@ model Campaign {
   active Boolean @default(true)
   createdAt DateTime @default(now())
   coupons Coupon[]
+  prerequisiteCampaignId String?
+  prerequisite Campaign? @relation("CampaignSequence", fields: [prerequisiteCampaignId], references: [id], onDelete: Restrict)
+  nextCampaigns Campaign[] @relation("CampaignSequence")
+  @@index([prerequisiteCampaignId])
 }
 model Admin {
   id String @id @default("owner")

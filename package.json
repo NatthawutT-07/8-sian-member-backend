@@ -9,6 +9,7 @@
     "generate": "prisma generate",
     "migrate": "prisma migrate deploy",
     "test": "node --test",
+    "test:sequence": "node --env-file=.env scripts/check-campaign-sequence.mjs",
     "test:integration": "node --env-file=.env scripts/check-auth.mjs && node --env-file=.env scripts/check-admin.mjs"
   },
   "dependencies": {

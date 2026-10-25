@@ -1,5 +1,11 @@
 import rateLimit from 'express-rate-limit';
 import { createBarcode } from './barcode.service.js';
+import {
+  campaignAccess,
+  prerequisiteInclude,
+  requireCampaignAccess,
+  usedCampaignsFor,
+} from './campaign-access.js';
 export const SEAFOOD_CAMPAIGN = 'seafood79_welcome_v1';
 export const COUPON_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const couponView = (coupon) => ({
@@ -22,9 +28,13 @@ export function mountCoupons(app, db, auth) {
   app.get('/api/campaigns', auth, async (req, res) => {
     const campaigns = await db.campaign.findMany({
       where: { active: true },
-      include: { coupons: { where: { memberId: req.member.id }, select: { id: true } } },
+      include: {
+        ...prerequisiteInclude,
+        coupons: { where: { memberId: req.member.id }, select: { id: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
+    const used = await usedCampaignsFor(db, req.member.id);
     res.json({
       campaigns: campaigns.map((c) => ({
         id: c.id,
@@ -33,6 +43,7 @@ export function mountCoupons(app, db, auth) {
         extraPrice: c.extraPrice,
         validityDays: c.validityDays,
         received: c.coupons.length > 0,
+        ...campaignAccess(c, used),
       })),
     });
   });
@@ -44,8 +55,12 @@ export function mountCoupons(app, db, auth) {
         const rows =
           await tx.$queryRaw`SELECT "active" FROM "Campaign" WHERE "id" = ${req.params.id} FOR SHARE`;
         if (!rows[0]?.active) return null;
-        const campaign = await tx.campaign.findUnique({ where: { id: req.params.id } }),
+        const campaign = await tx.campaign.findUnique({
+            where: { id: req.params.id },
+            include: prerequisiteInclude,
+          }),
           now = new Date();
+        await requireCampaignAccess(tx, req.member.id, campaign);
         const issued = await tx.coupon.create({
           data: {
             memberId: req.member.id,
@@ -76,10 +91,14 @@ export function mountCoupons(app, db, auth) {
     const now = new Date();
     const coupons = await db.coupon.findMany({
       where: { memberId: req.member.id, usedAt: null, expiresAt: { gt: now } },
-      include: { offer: true },
+      include: { offer: { include: prerequisiteInclude } },
       orderBy: { expiresAt: 'asc' },
     });
-    res.json({ coupons: coupons.map(couponView), serverTime: now });
+    const used = await usedCampaignsFor(db, req.member.id);
+    res.json({
+      coupons: coupons.map((c) => ({ ...couponView(c), ...campaignAccess(c.offer, used) })),
+      serverTime: now,
+    });
   });
   const barcodeLimit = rateLimit({
     windowMs: 60000,
@@ -94,9 +113,11 @@ export function mountCoupons(app, db, auth) {
     const now = new Date();
     const coupon = await db.coupon.findFirst({
       where: { id: req.params.id, memberId: req.member.id, usedAt: null, expiresAt: { gt: now } },
+      include: { offer: { include: prerequisiteInclude } },
     });
     if (!coupon)
       return res.status(409).json({ message: 'คูปองนี้ใช้แล้ว หมดอายุ หรือไม่สามารถใช้งานได้' });
+    await requireCampaignAccess(db, req.member.id, coupon.offer);
     const barcode = createBarcode(coupon.expiresAt, now);
     const result = await db.coupon.updateMany({
       where: { id: coupon.id, memberId: req.member.id, usedAt: null, expiresAt: { gt: now } },
