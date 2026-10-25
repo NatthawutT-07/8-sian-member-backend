@@ -32,3 +32,23 @@ test('requires real birthday within allowed range', () => {
     assert.equal(registration.safeParse({ ...valid, birthDate }).success, false);
   assert.equal(registration.safeParse({ ...valid, birthDate: '2000-02-29' }).success, true);
 });
+test('rejects markup, controls, excessive lengths and non-name values', () => {
+  for (const firstName of [
+    '<script>alert(1)</script>',
+    'สมชาย123',
+    'A\u0000B',
+    'A\u202eB',
+    'x'.repeat(81),
+    '---',
+  ]) {
+    assert.equal(registration.safeParse({ ...valid, firstName }).success, false);
+    assert.equal(registration.safeParse({ ...valid, lastName: firstName }).success, false);
+  }
+  for (const firstName of ['สมชาย', 'Anne-Marie', 'O’Connor', 'Jean Luc']) {
+    assert.equal(registration.safeParse({ ...valid, firstName }).success, true);
+  }
+  assert.equal(registration.safeParse({ ...valid, password: ' '.repeat(8) }).success, false);
+  for (const phone of ['+66812345678', '08123456789', '081234567a']) {
+    assert.equal(registration.safeParse({ ...valid, phone }).success, false);
+  }
+});

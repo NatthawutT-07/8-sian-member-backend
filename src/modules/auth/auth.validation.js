@@ -1,5 +1,12 @@
 import { z } from 'zod';
 export const phone = z.string().regex(/^0[689]\d{8}$/);
+const memberName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[\p{L}\p{M} .’'-]+$/u, 'ชื่อใช้ได้เฉพาะตัวอักษรและเครื่องหมายในชื่อ')
+  .refine((value) => /\p{L}/u.test(value), 'กรุณากรอกชื่อ');
 export const birthDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -19,11 +26,15 @@ export const birthDate = z
     );
   }, 'วันเกิดไม่ถูกต้อง');
 export const registration = z.object({
-  firstName: z.string().trim().min(1).max(80),
-  lastName: z.string().trim().min(1).max(80),
+  firstName: memberName,
+  lastName: memberName,
   phone,
   birthDate,
-  password: z.string().min(8).max(128),
+  password: z
+    .string()
+    .min(8)
+    .max(128)
+    .refine((value) => value.trim().length > 0),
   privacyConsent: z.literal(true),
   marketingConsent: z.boolean().default(false),
 });
