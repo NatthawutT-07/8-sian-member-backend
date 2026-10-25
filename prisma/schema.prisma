@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model Member {
+  id String @id @default(uuid())
+  memberNumber Int @unique @default(autoincrement())
+  firstName String
+  lastName String
+  phone String @unique
+  passwordHash String?
+  birthDate DateTime? @db.Date
+  marketingConsent Boolean @default(false)
+  privacyVersion String @default("2026-10-25")
+  consentedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  sessions Session[]
+  coupons Coupon[]
+}
+model Session {
+  tokenHash String @id
+  memberId String
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model Coupon {
+  id String @id @default(uuid())
+  memberId String
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  campaign String
+  offer Campaign @relation(fields: [campaign], references: [id])
+  issuedAt DateTime @default(now())
+  expiresAt DateTime
+  usedAt DateTime?
+  barcodeTokenHash String? @unique
+  barcodeExpiresAt DateTime?
+  @@unique([memberId, campaign])
+  @@index([memberId, usedAt, expiresAt])
+}
+model Campaign {
+  id String @id @default(uuid())
+  title String
+  description String
+  extraPrice Int @default(0)
+  validityDays Int @default(30)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  coupons Coupon[]
+}
+model Admin {
+  id String @id @default("owner")
+  username String @unique
+  passwordHash String
+  role String @default("ADMIN")
+  createdAt DateTime @default(now())
+  sessions AdminSession[]
+}
+model AdminSession {
+  tokenHash String @id
+  adminId String
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+model AuditLog {
+  id String @id @default(uuid())
+  actor String
+  action String
+  memberId String?
+  details Json
+  createdAt DateTime @default(now())
+  @@index([memberId, createdAt])
+}

@@ -1,0 +1,27 @@
+# Dependencies and generated Prisma client
+node_modules/
+generated/
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+credentials*.json
+# Runtime data, logs and database backups
+*.log
+logs/
+uploads/
+backups/
+*.dump
+*.backup
+*.db
+*.db-journal
+# Test output and editor files
+coverage/
+.cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

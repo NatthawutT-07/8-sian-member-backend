@@ -1,0 +1,30 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/server.js",
+    "start": "node src/server.js",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate deploy",
+    "test": "node --test",
+    "test:integration": "node --env-file=.env scripts/check-auth.mjs && node --env-file=.env scripts/check-admin.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "prisma": "6.19.0",
+    "zod": "4.6.7"
+  },
+  "overrides": {
+    "effect": "3.20.0",
+    "deepmerge-ts": "8.0.0"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
