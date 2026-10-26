@@ -9,7 +9,7 @@ const origin = 'http://localhost:5173',
   base = 'http://127.0.0.1:3099';
 const fixture = {
   phone: `09${String(randomInt(100000000)).padStart(8, '0')}`,
-  firstName: `QA-${randomUUID()}`,
+  firstName: `QA-${randomUUID().replace(/[0-9]/g, (digit) => String.fromCharCode(103 + Number(digit)))}`,
   lastName: 'Integration',
   birthDate: '2000-02-29',
   password: randomUUID(),

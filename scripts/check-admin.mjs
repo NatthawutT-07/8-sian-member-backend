@@ -288,6 +288,24 @@ try {
     (await call('/api/auth/login', { phone: fixture.phone, password: newPassword })).status,
     200,
   );
+  const publicResponse = await call('/api/promotions');
+  assert.equal(publicResponse.status, 200);
+  const publicPromotions = (await publicResponse.json()).promotions;
+  assert.equal(
+    publicPromotions.some((item) => item.id === campaign.id),
+    true,
+  );
+  assert.equal(
+    publicPromotions.some((item) => item.id === other.id),
+    false,
+  );
+  for (const promotion of publicPromotions) {
+    assert.deepEqual(
+      Object.keys(promotion).sort(),
+      ['id', 'title', 'description', 'extraPrice', 'validityDays', 'prerequisite'].sort(),
+    );
+    if (promotion.prerequisite) assert.deepEqual(Object.keys(promotion.prerequisite), ['title']);
+  }
   const audits = await db.auditLog.findMany();
   assert.equal(audits.filter((a) => a.action === 'GRANT_COUPON').length, 2);
   assert.equal(audits.filter((a) => a.action === 'RESET_MEMBER_PASSWORD').length, 1);

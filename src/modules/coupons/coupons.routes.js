@@ -18,6 +18,22 @@ export const couponView = (coupon) => ({
   expiresAt: coupon.expiresAt,
 });
 export function mountCoupons(app, db, auth) {
+  // Public catalog: expose only promotional content, never member or coupon records.
+  app.get('/api/promotions', async (req, res) => {
+    const campaigns = await db.campaign.findMany({
+      where: { active: true },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        extraPrice: true,
+        validityDays: true,
+        prerequisite: { select: { title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.set('Cache-Control', 'no-store').json({ promotions: campaigns });
+  });
   const claimLimit = rateLimit({
     windowMs: 15 * 60000,
     limit: 20,
