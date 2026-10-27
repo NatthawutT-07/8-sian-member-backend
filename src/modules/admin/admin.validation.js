@@ -6,7 +6,7 @@ export const adminLogin = z.object({
 export const campaignInput = z.object({
   title: z.string().trim().min(1).max(100),
   description: z.string().trim().min(1).max(500),
-  extraPrice: z.number().int().min(0).max(100000),
+  extraPrice: z.number().int().min(-100000).max(100000),
   validityDays: z.number().int().min(1).max(365),
   prerequisiteCampaignId: z.string().trim().min(1).max(100).nullable().optional(),
 });

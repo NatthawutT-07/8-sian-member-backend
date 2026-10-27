@@ -9,11 +9,15 @@ test('campaign validates price, content and bounded expiry', () => {
     validityDays: 30,
   };
   assert.equal(campaignInput.safeParse(valid).success, true);
+  for (const extraPrice of [-100000, -20, -1, 0, 79, 100000])
+    assert.equal(campaignInput.parse({ ...valid, extraPrice }).extraPrice, extraPrice);
   for (const change of [
     { title: ' ' },
     { validityDays: 0 },
     { validityDays: 366 },
-    { extraPrice: -1 },
+    { extraPrice: -100001 },
+    { extraPrice: 100001 },
+    { extraPrice: -1.5 },
     { extraPrice: 1.5 },
   ])
     assert.equal(campaignInput.safeParse({ ...valid, ...change }).success, false);

@@ -13,6 +13,8 @@ model Member {
   phone String? @unique
   lineUserId String? @unique
   lineDisplayName String?
+  loyaltyQrHash String? @unique
+  loyaltyQrExpiresAt DateTime?
   passwordHash String?
   birthDate DateTime? @db.Date
   marketingConsent Boolean @default(false)
@@ -21,6 +23,16 @@ model Member {
   createdAt DateTime @default(now())
   sessions Session[]
   coupons Coupon[]
+  diningVisits DiningVisit[]
+}
+model DiningVisit {
+  id String @id @default(uuid())
+  memberId String
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  receiptNumber String @unique
+  recordedBy String
+  createdAt DateTime @default(now())
+  @@index([memberId, createdAt])
 }
 model LineAuthFlow {
   tokenHash String @id
