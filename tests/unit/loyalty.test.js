@@ -144,6 +144,26 @@ async function fixture(run) {
   }
 }
 
+test('member cards return only the signed-in account number and cannot be cached', () =>
+  fixture(async ({ send }) => {
+    for (const [cookie, number] of [
+      [memberCookie, '8S-000001'],
+      [otherCookie, '8S-000002'],
+      [memberCookie, '8S-000001'],
+    ]) {
+      const response = await send('/api/members/me?memberNumber=8S-000018', { cookie });
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('cache-control'), /private/);
+      assert.match(response.headers.get('cache-control'), /no-store/);
+      assert.match(response.headers.get('vary'), /Cookie/i);
+      assert.equal((await response.json()).member.memberNumber, number);
+    }
+    const anonymous = await send('/api/members/me', { cookie: '' });
+    assert.equal(anonymous.status, 401);
+    assert.match(anonymous.headers.get('cache-control'), /no-store/);
+    assert.equal((await anonymous.json()).member, undefined);
+  }));
+
 test('loyalty endpoints enforce member/admin authentication and origin', () =>
   fixture(async ({ send, rows }) => {
     assert.equal((await send('/api/members/me/loyalty', { cookie: '' })).status, 401);

@@ -23,6 +23,12 @@ export async function createApp({ db, config }) {
     '/api',
     rateLimit({ windowMs: 60000, limit: 90, standardHeaders: 'draft-8', legacyHeaders: false }),
   );
+  // Account responses must never be reused for another visitor by a browser or CDN.
+  app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store, max-age=0');
+    res.vary('Cookie');
+    next();
+  });
   app.use('/api', originGuard(config.origin));
   app.get('/api/health', async (req, res) => {
     try {
