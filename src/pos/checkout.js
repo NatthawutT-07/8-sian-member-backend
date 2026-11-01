@@ -3,6 +3,7 @@ import { nextReceiptNumber } from './receipt-number.js';
 import { priceItems } from './pricing.js';
 import { selectedMember } from './member-selection.js';
 import { couponForCheckout } from './coupon-discounts.js';
+import { openPaidTable } from '../ordering/service.js';
 export { productInput, checkoutInput } from './validation.js';
 export { priceItems } from './pricing.js';
 export const requestHash = (data) =>
@@ -55,6 +56,7 @@ export async function completeSale(db, data, actor) {
         throw new Error('ยอดรับชำระไม่ถูกต้อง');
       const createdAt = new Date();
       const receiptNumber = await nextReceiptNumber(tx, createdAt);
+      const table = data.tableId ? await openPaidTable(tx, data.tableId, actor) : null;
       const sale = await tx.posSale.create({
         data: {
           receiptNumber,
@@ -73,6 +75,9 @@ export async function completeSale(db, data, actor) {
           receivedSatang: data.receivedSatang,
           changeSatang: data.receivedSatang - totalSatang,
           memberId: member?.id,
+          ...(table
+            ? { tableId: table.id, tableNumber: table.number, tableSessionId: table.sessionId }
+            : {}),
         },
       });
       if (member)

@@ -31,6 +31,7 @@ export const checkoutInput = z
   .object({
     key: z.string().uuid(),
     shiftId: z.string().uuid(),
+    tableId: z.string().uuid().optional(),
     items,
     method: z.enum(['CASH', 'TRANSFER']),
     receivedSatang: z.number().int().min(0).max(100000000),

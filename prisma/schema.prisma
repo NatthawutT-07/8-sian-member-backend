@@ -137,11 +137,57 @@ model PosSale {
   receivedSatang Int
   changeSatang Int
   memberId String?
+  tableId String?
+  tableNumber Int?
+  tableSessionId String?
   shiftId String?
   shift PosShift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
   @@index([shiftId])
   @@index([createdAt])
+}
+
+model DiningTable {
+  id String @id @default(uuid())
+  number Int @unique
+  qrToken String @unique @default(uuid())
+  sessionId String? @unique
+  orderingEnabled Boolean @default(false)
+  zones Json @default("[]")
+  openedAt DateTime?
+  openedBy String?
+  closedAt DateTime?
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  orders TableOrder[]
+}
+
+model OrderingMenuItem {
+  id String @id @default(uuid())
+  zone String
+  category String
+  name String
+  active Boolean @default(true)
+  imageData Bytes?
+  imageMime String?
+  imageVersion String?
+  createdAt DateTime @default(now())
+  @@unique([zone, category, name])
+}
+
+model TableOrder {
+  id String @id @default(uuid())
+  key String @unique
+  requestHash String
+  tableId String
+  table DiningTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  sessionId String
+  items Json
+  status String @default("NEW")
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([status, createdAt])
+  @@index([tableId, sessionId])
 }
 
 model PosCouponReservation {

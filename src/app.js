@@ -11,6 +11,7 @@ import { mountMemberLoyalty } from './modules/members/loyalty.routes.js';
 import { mountCoupons } from './modules/coupons/coupons.routes.js';
 import { mountAdmin } from './modules/admin/admin.routes.js';
 import { mountPos } from './pos/routes.js';
+import { mountPublicOrdering, mountOrderingAdmin } from './ordering/routes.js';
 
 export async function createApp({ db, config }) {
   const app = express();
@@ -26,7 +27,13 @@ export async function createApp({ db, config }) {
   );
   app.use(
     '/api',
-    rateLimit({ windowMs: 60000, limit: 90, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({
+      windowMs: 60000,
+      limit: 90,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+      skip: (req) => /^\/(ordering\/|ordering-images\/)/.test(req.path),
+    }),
   );
   // Account responses must never be reused for another visitor by a browser or CDN.
   app.use('/api', (req, res, next) => {
@@ -49,7 +56,9 @@ export async function createApp({ db, config }) {
   mountMemberLoyalty(app, db, requireMember);
   mountCoupons(app, db, requireMember);
   await mountAdmin(app, db, config);
+  mountOrderingAdmin(app, db, config);
   await mountPos(app, db, config);
+  mountPublicOrdering(app, db);
   app.use(errorHandler);
   return app;
 }

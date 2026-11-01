@@ -11,6 +11,7 @@ const userInput = z
       .regex(/^[a-zA-Z0-9._-]{3,80}$/),
     displayName: z.string().trim().min(1).max(100),
     password: z.string().min(8).max(128),
+    role: z.enum(['USER', 'CHEF']).default('USER'),
   })
   .strict();
 const userSelect = {
@@ -78,7 +79,7 @@ export function mountPosAdmin(app, db) {
     const passwordHash = await hashPassword(password);
     const user = await db.$transaction(async (tx) => {
       const user = await tx.posUser.create({
-        data: { ...fields, passwordHash, role: 'USER' },
+        data: { ...fields, passwordHash },
         select: userSelect,
       });
       await tx.auditLog.create({

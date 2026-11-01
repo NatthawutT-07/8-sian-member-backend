@@ -1,0 +1,235 @@
+import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
+import { parseBody } from '../shared/http-validation.js';
+import { orderInput, orderingError, submitOrder, closeTable, activateTable } from './service.js';
+import { menuFields, presentMenuItem, mountMenuImages, mountAdminMenuImages } from './images.js';
+
+const uuid = z.string().uuid();
+const menuInput = z
+  .object({
+    zone: z.string().trim().min(1).max(80),
+    category: z.string().trim().min(1).max(80),
+    name: z.string().trim().min(1).max(120),
+    active: z.boolean().default(true),
+  })
+  .strict();
+export const orderingHandler = (fn) => async (req, res, next) => {
+  try {
+    await fn(req, res);
+  } catch (error) {
+    if (error.orderingStatus)
+      return res.status(error.orderingStatus).json({ message: error.message });
+    if (['P2002', 'P2034'].includes(error.code))
+      return res
+        .status(409)
+        .json({ message: 'ข้อมูลซ้ำหรือมีรายการพร้อมกัน กรุณาลองใหม่ด้วยรายการเดิม' });
+    if (error.code === 'P2025') return res.status(404).json({ message: 'ไม่พบรายการ' });
+    next(error);
+  }
+};
+
+export function mountPublicOrdering(app, db) {
+  mountMenuImages(app, db, orderingHandler);
+  // Customers often share the restaurant Wi-Fi IP. Allow menu polling separately
+  // from account APIs and limit submissions per table rather than per shared IP.
+  app.use(
+    '/api/ordering',
+    rateLimit({
+      windowMs: 60000,
+      limit: 600,
+      message: { message: 'มีคำขอจำนวนมาก กรุณารอสักครู่' },
+    }),
+  );
+  app.get(
+    '/api/ordering/:token',
+    orderingHandler(async (req, res) => {
+      if (!uuid.safeParse(req.params.token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
+      const table = await db.diningTable.findUnique({ where: { qrToken: req.params.token } });
+      if (!table) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
+      if (!table.sessionId || !table.orderingEnabled)
+        return res.status(403).json({
+          message: 'โต๊ะยังไม่เปิดสั่งอาหาร กรุณาติดต่อพนักงาน',
+          tableNumber: table.number,
+        });
+      res.json({
+        tableNumber: table.number,
+        sessionId: table.sessionId,
+        menu: (
+          await db.orderingMenuItem.findMany({
+            where: { active: true, zone: { in: table.zones } },
+            orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
+            select: menuFields,
+          })
+        ).map(presentMenuItem),
+      });
+    }),
+  );
+  app.post(
+    '/api/ordering/:token/orders',
+    rateLimit({
+      windowMs: 60000,
+      limit: 15,
+      keyGenerator: (req) =>
+        uuid.safeParse(req.params.token).success ? req.params.token : 'invalid-table',
+      message: { message: 'ส่งรายการบ่อยเกินไป กรุณารอสักครู่' },
+    }),
+    orderingHandler(async (req, res) => {
+      if (!uuid.safeParse(req.params.token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
+      const data = parseBody(orderInput, req.body, res);
+      if (data) res.json(await submitOrder(db, req.params.token, data));
+    }),
+  );
+}
+
+export function mountPosOrdering(router, db) {
+  router.get(
+    '/tables',
+    orderingHandler(async (req, res) => {
+      res.json(
+        await db.diningTable.findMany({
+          orderBy: { number: 'asc' },
+          select: {
+            id: true,
+            number: true,
+            sessionId: true,
+            orderingEnabled: true,
+            zones: true,
+            openedAt: true,
+          },
+        }),
+      );
+    }),
+  );
+  router.get(
+    '/ordering-zones',
+    orderingHandler(async (req, res) => {
+      const rows = await db.orderingMenuItem.findMany({
+        select: { zone: true },
+        distinct: ['zone'],
+        orderBy: { zone: 'asc' },
+      });
+      res.json(rows.map((row) => row.zone));
+    }),
+  );
+  router.post(
+    '/tables/:id/activate',
+    orderingHandler(async (req, res) => {
+      const data = parseBody(
+        z
+          .object({ sessionId: uuid, zones: z.array(z.string().trim().min(1).max(80)).max(100) })
+          .strict(),
+        req.body,
+        res,
+      );
+      if (data)
+        res.json(await activateTable(db, req.params.id, data.sessionId, data.zones, req.posActor));
+    }),
+  );
+  router.post(
+    '/tables/:id/close',
+    orderingHandler(async (req, res) => {
+      const data = parseBody(z.object({ sessionId: uuid }).strict(), req.body, res);
+      if (data) res.json(await closeTable(db, req.params.id, data.sessionId, req.posActor));
+    }),
+  );
+  router.get(
+    '/table-orders',
+    orderingHandler(async (req, res) => {
+      res.json(
+        await db.tableOrder.findMany({
+          where: { status: 'NEW' },
+          orderBy: { createdAt: 'asc' },
+          take: 200,
+          include: { table: { select: { number: true, sessionId: true } } },
+        }),
+      );
+    }),
+  );
+  router.post(
+    '/table-orders/:id/complete',
+    orderingHandler(async (req, res) => {
+      await db.tableOrder.updateMany({
+        where: { id: req.params.id, status: 'NEW' },
+        data: { status: 'DONE', completedAt: new Date() },
+      });
+      res.json({ ok: true });
+    }),
+  );
+}
+
+// Mounted after the existing admin authentication middleware.
+export function mountOrderingAdmin(app, db, config) {
+  mountAdminMenuImages(app, db, orderingHandler);
+  const tables = () => db.diningTable.findMany({ orderBy: { number: 'asc' } });
+  const present = (table) => ({
+    ...table,
+    url: `${config.origin.replace(/\/$/, '')}/order/${table.qrToken}`,
+  });
+  app.get(
+    '/api/admin/dining-tables',
+    orderingHandler(async (req, res) => res.json((await tables()).map(present))),
+  );
+  app.post(
+    '/api/admin/dining-tables',
+    orderingHandler(async (req, res) => {
+      const data = parseBody(
+        z
+          .object({
+            from: z.number().int().min(1).max(9999),
+            to: z.number().int().min(1).max(9999),
+          })
+          .strict()
+          .refine((data) => data.to >= data.from && data.to - data.from < 200),
+        req.body,
+        res,
+      );
+      if (!data) return;
+      // Upsert never updates an existing QR: adding tables is safe to repeat.
+      await db.$transaction(async (tx) => {
+        for (let number = data.from; number <= data.to; number++)
+          await tx.diningTable.upsert({ where: { number }, create: { number }, update: {} });
+        await tx.auditLog.create({
+          data: { actor: req.admin.id, action: 'TABLES_ADDED', details: data },
+        });
+      });
+      res.json((await tables()).map(present));
+    }),
+  );
+  app.get(
+    '/api/admin/ordering-menu',
+    orderingHandler(async (req, res) => {
+      res.json(
+        (
+          await db.orderingMenuItem.findMany({
+            orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
+            select: menuFields,
+          })
+        ).map(presentMenuItem),
+      );
+    }),
+  );
+  const saveMenu = async (req, res) => {
+    const data = parseBody(menuInput, req.body, res);
+    if (!data) return;
+    const item = await db.$transaction(async (tx) => {
+      const item = req.params.id
+        ? await tx.orderingMenuItem.update({
+            where: { id: req.params.id },
+            data,
+            select: menuFields,
+          })
+        : await tx.orderingMenuItem.create({ data, select: menuFields });
+      await tx.auditLog.create({
+        data: {
+          actor: req.admin.id,
+          action: 'ORDERING_MENU_SAVED',
+          details: { id: item.id, ...data },
+        },
+      });
+      return item;
+    });
+    res.json(presentMenuItem(item));
+  };
+  app.post('/api/admin/ordering-menu', orderingHandler(saveMenu));
+  app.put('/api/admin/ordering-menu/:id', orderingHandler(saveMenu));
+}

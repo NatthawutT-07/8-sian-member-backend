@@ -282,6 +282,17 @@ server {
 
     client_max_body_size 16k;
 
+    # รูปเมนู: เพิ่มขนาดเฉพาะ endpoint อัปโหลดรูป (backend ตรวจสิทธิ์แอดมินและชนิดรูป)
+    location ~ ^/api/admin/ordering-menu/[a-f0-9-]+/image$ {
+        client_max_body_size 2m;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
@@ -359,7 +370,7 @@ node --env-file=.env scripts/create-admin.mjs
 4. หลังบ้านเข้าด้วยบัญชีแอดมินได้ และสมาชิกทั่วไปเข้า API แอดมินไม่ได้
 5. แคมเปญต่อเนื่องยังล็อกจนคูปองก่อนหน้ามี `usedAt` ยืนยันจากระบบที่เชื่อถือได้
 
-การเปิดบาร์โค้ดไม่ใช่การใช้คูปองสำเร็จ รุ่นนี้ยังไม่มี endpoint เชื่อม POS ยืนยันชำระเงินครบกระบวนการ อย่าตั้ง `usedAt` ของลูกค้าจริงเพียงเพื่อทดสอบการปลดล็อก
+การเปิดบาร์โค้ดไม่ใช่การใช้คูปองสำเร็จ ต้องให้ POS ยืนยันรับชำระและบันทึกบิลผ่านกระบวนการ checkout อย่าตั้ง `usedAt` ของลูกค้าจริงเพียงเพื่อทดสอบการปลดล็อก
 
 ## 11. อัปเดต backend จาก GitHub ครั้งถัดไป
 

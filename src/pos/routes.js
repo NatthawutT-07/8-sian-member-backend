@@ -10,6 +10,9 @@ import { mountShiftReports } from './shift-reports.js';
 import { phone } from '../modules/auth/auth.validation.js';
 import { couponReserveInput, couponReleaseInput } from './validation.js';
 import { reserveCoupon } from './coupon-discounts.js';
+import { mountPosOrdering } from '../ordering/routes.js';
+import { orderingHandler } from '../ordering/routes.js';
+import { mountKitchen } from '../ordering/kitchen.js';
 import {
   openInput,
   closeInput,
@@ -43,7 +46,7 @@ export async function mountPos(app, db, config) {
       if (!data) return;
       const user = await db.posUser.findUnique({ where: { username: data.username } });
       const valid = await verifyPassword(data.password, user?.passwordHash || dummy);
-      if (!valid || !user?.active || user?.role !== 'USER')
+      if (!valid || !user?.active || !['USER', 'CHEF'].includes(user?.role))
         return res.status(401).json({ message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
       const value = sessionToken(),
         expiresAt = new Date(Date.now() + 8 * 3600000);
@@ -70,12 +73,13 @@ export async function mountPos(app, db, config) {
       !session ||
       session.expiresAt <= new Date() ||
       !session.user.active ||
-      session.user.role !== 'USER'
+      !['USER', 'CHEF'].includes(session.user.role)
     )
       return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบ POS' });
     req.posActor = session.user.id;
     req.posUsername = session.user.username;
     req.posDisplayName = session.user.displayName;
+    req.posRole = session.user.role;
     next();
   });
   router.get('/me', (req, res) =>
@@ -83,10 +87,30 @@ export async function mountPos(app, db, config) {
       id: req.posActor,
       username: req.posUsername,
       displayName: req.posDisplayName,
-      role: 'USER',
+      role: req.posRole,
     }),
   );
+  router.use((req, res, next) => {
+    if (req.posRole !== 'CHEF') return next();
+    const allowed =
+      (req.method === 'GET' &&
+        (/^\/kitchen\/(orders|tables)$/.test(req.path) ||
+          /^\/kitchen\/orders\/[a-zA-Z0-9-]+\/ticket$/.test(req.path) ||
+          /^\/kitchen\/tables\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/summary$/.test(req.path))) ||
+      (req.method === 'POST' &&
+        (req.path === '/logout' ||
+          /^\/kitchen\/orders\/[a-zA-Z0-9-]+\/complete$/.test(req.path) ||
+          (req.path === '/hardware/events' &&
+            ['PRINT_KITCHEN', 'TEST_PRINT', 'CONNECT'].includes(req.body?.operation))));
+    if (!allowed)
+      return res
+        .status(403)
+        .json({ message: 'บัญชีพ่อครัวมีสิทธิ์เฉพาะจัดการออเดอร์และพิมพ์ใบอาหาร' });
+    next();
+  });
+  mountKitchen(router, db, orderingHandler);
   mountHardware(router, db);
+  mountPosOrdering(router, db);
   mountShiftReports(router, db);
   router.post('/logout', async (req, res) => {
     await db.posSession.deleteMany({ where: { tokenHash: digest(token(req)) } });

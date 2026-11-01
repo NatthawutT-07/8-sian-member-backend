@@ -6,12 +6,28 @@ import { parseBody } from '../../shared/http-validation.js';
 
 const reason = z.string().trim().min(5).max(300);
 const deleteInput = z.object({ confirmName: z.string().trim().min(1).max(200), reason }).strict();
-const profileInput = registration
-  .pick({ firstName: true, lastName: true })
-  .extend({
-    phone: phone.nullable(),
-    birthDate: birthDate.nullable(),
-    reason,
+const optionalValue = (schema, fallback = null) =>
+  z
+    .preprocess(
+      (value) => (value == null || (typeof value === 'string' && !value.trim()) ? null : value),
+      schema.nullable().optional(),
+    )
+    .transform((value) => value ?? fallback);
+const profileFields = {
+  firstName: optionalValue(registration.shape.firstName, ''),
+  lastName: optionalValue(registration.shape.lastName, ''),
+  phone: optionalValue(phone),
+  birthDate: optionalValue(birthDate),
+};
+export const profileInput = z
+  .object({ ...profileFields, reason: optionalValue(reason, 'ปรับปรุงข้อมูลสมาชิก') })
+  .strict();
+export const adminMemberInput = z
+  .object({
+    ...profileFields,
+    password: optionalValue(registration.shape.password),
+    privacyConsent: z.boolean().optional().default(false),
+    marketingConsent: z.boolean().optional().default(false),
   })
   .strict();
 const fields = {
@@ -125,22 +141,28 @@ export function mountAdminManagement(app, db) {
 
   app.post(
     '/api/admin/members',
-    managementHandler(registration.strict(), async (req, data) => {
-      const passwordHash = await hashPassword(data.password);
+    managementHandler(adminMemberInput, async (req, data) => {
+      const passwordHash = data.password ? await hashPassword(data.password) : null;
       const member = await transaction(async (tx) => {
         const created = await tx.member.create({
           data: {
             firstName: data.firstName,
             lastName: data.lastName,
             phone: data.phone,
-            birthDate: new Date(`${data.birthDate}T00:00:00Z`),
+            birthDate: data.birthDate ? new Date(`${data.birthDate}T00:00:00Z`) : null,
             passwordHash,
             marketingConsent: data.marketingConsent,
-            privacyVersion: '2026-10-25',
+            privacyVersion: data.privacyConsent ? '2026-10-25' : 'not-recorded',
           },
           select: fields,
         });
-        await audit(tx, req.admin.id, 'CREATE_MEMBER', { source: 'ADMIN' }, created.id);
+        await audit(
+          tx,
+          req.admin.id,
+          'CREATE_MEMBER',
+          { source: 'ADMIN', privacyConsent: data.privacyConsent },
+          created.id,
+        );
         return created;
       });
       return { member };
@@ -152,8 +174,6 @@ export function mountAdminManagement(app, db) {
       transaction(async (tx) => {
         const previous = await tx.member.findUnique({ where: { id: req.params.id } });
         if (!previous) throw fail('ไม่พบสมาชิก', 404);
-        if (previous.phone && !data.phone)
-          throw fail('สมาชิกที่มีเบอร์โทรแล้วต้องระบุเบอร์ใหม่ให้ครบ', 400);
         const phoneChanged = previous.phone !== data.phone;
         const member = await tx.member.update({
           where: { id: previous.id },
@@ -177,7 +197,7 @@ export function mountAdminManagement(app, db) {
         return {
           member,
           message: phoneChanged
-            ? 'แก้ไขแล้ว สมาชิกต้องเข้าสู่ระบบใหม่ด้วยเบอร์ใหม่'
+            ? 'แก้ไขข้อมูลติดต่อแล้ว เซสชันเดิมของสมาชิกถูกยกเลิก'
             : 'บันทึกข้อมูลสมาชิกแล้ว',
         };
       }),
@@ -216,16 +236,21 @@ export function mountAdminManagement(app, db) {
         .object({
           displayName: z.string().trim().min(1).max(100),
           active: z.boolean(),
+          role: z.enum(['USER', 'CHEF']).optional(),
         })
         .strict(),
       (req, data) =>
         transaction(async (tx) => {
+          const previous = data.role
+            ? await tx.posUser.findUnique({ where: { id: req.params.id } })
+            : null;
           const user = await tx.posUser.update({
             where: { id: req.params.id },
             data,
             select: { id: true, username: true, displayName: true, role: true, active: true },
           });
-          if (!data.active) await tx.posSession.deleteMany({ where: { userId: user.id } });
+          if (!data.active || (data.role && data.role !== previous?.role))
+            await tx.posSession.deleteMany({ where: { userId: user.id } });
           await audit(tx, req.admin.id, 'POS_USER_UPDATE', {
             userId: user.id,
             active: data.active,

@@ -14,10 +14,12 @@ const eventInput = z
       'PRINT_BARCODE',
       'OPEN_DRAWER',
       'PRINT_SHIFT',
+      'PRINT_KITCHEN',
     ]),
     status: z.enum(['REQUESTED', 'SENT', 'FAILED_OR_UNKNOWN']),
     saleId: saleId.optional(),
     shiftId: saleId.optional(),
+    orderId: saleId.optional(),
     reason: z.string().trim().min(1).max(120),
     deviceName: z.string().trim().min(1).max(80),
   })
@@ -61,6 +63,16 @@ export function mountHardware(router, db) {
   router.post('/hardware/events', async (req, res) => {
     const data = parseBody(eventInput, req.body, res);
     if (!data) return;
+    if (data.operation === 'PRINT_KITCHEN' && data.status === 'REQUESTED') {
+      if (!data.orderId)
+        return res.status(400).json({ message: 'กรุณาระบุออเดอร์ที่ต้องการพิมพ์' });
+      const order = await db.tableOrder.findUnique({
+        where: { id: data.orderId },
+        include: { table: { select: { sessionId: true } } },
+      });
+      if (!order || order.status === 'CANCELLED' || order.table.sessionId !== order.sessionId)
+        return res.status(409).json({ message: 'โต๊ะปิดแล้วหรือออเดอร์ถูกยกเลิก' });
+    }
     if (data.saleId && !(await db.posSale.findUnique({ where: { id: data.saleId } })))
       return res.status(404).json({ message: 'ไม่พบบิลที่บันทึกแล้ว' });
     if (data.shiftId && !(await db.posShift.findUnique({ where: { id: data.shiftId } }))?.closedAt)
