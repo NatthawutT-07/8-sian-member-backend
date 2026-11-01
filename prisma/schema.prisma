@@ -63,6 +63,8 @@ model Coupon {
   usedAt DateTime?
   barcodeTokenHash String? @unique
   barcodeExpiresAt DateTime?
+  posReservation PosCouponReservation?
+  posSale PosSale?
   @@unique([memberId, campaign])
   @@index([memberId, usedAt, expiresAt])
 }
@@ -71,6 +73,9 @@ model Campaign {
   title String
   description String
   extraPrice Int @default(0)
+  /// Legacy value retained for old data; POS discount is derived from extraPrice.
+  posDiscountSatang Int @default(0)
+  posMinSubtotalSatang Int @default(0)
   validityDays Int @default(30)
   active Boolean @default(true)
   createdAt DateTime @default(now())
@@ -103,4 +108,91 @@ model AuditLog {
   details Json
   createdAt DateTime @default(now())
   @@index([memberId, createdAt])
+}
+
+model PosProduct {
+  id String @id @default(uuid())
+  barcode String @unique
+  name String
+  priceSatang Int
+  group String @default("MAIN")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model PosSale {
+  id String @id @default(uuid())
+  receiptNumber String @unique
+  key String @unique
+  requestHash String
+  actor String
+  items Json
+  totalSatang Int
+  subtotalSatang Int?
+  discountSatang Int @default(0)
+  couponId String? @unique
+  coupon Coupon? @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  couponTitle String?
+  method String
+  receivedSatang Int
+  changeSatang Int
+  memberId String?
+  shiftId String?
+  shift PosShift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  @@index([shiftId])
+  @@index([createdAt])
+}
+
+model PosCouponReservation {
+  id String @id @default(uuid())
+  couponId String @unique
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  billKey String @unique
+  actor String
+  barcodeHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model PosReceiptCounter {
+  businessDate String @id
+  lastNumber Int
+}
+
+model PosUser {
+  id String @id @default(uuid())
+  username String @unique
+  displayName String
+  passwordHash String
+  role String @default("USER")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  sessions PosSession[]
+}
+
+model PosSession {
+  tokenHash String @id
+  userId String
+  user PosUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model PosShift {
+  id String @id @default(uuid())
+  activeSlot String? @unique
+  businessDate String
+  openedBy String
+  openedAt DateTime @default(now())
+  openingCashSatang Int
+  closedBy String?
+  closedAt DateTime?
+  countedCashSatang Int?
+  expectedCashSatang Int?
+  cashDifferenceSatang Int?
+  version Int @default(0)
+  sales PosSale[]
+  @@index([businessDate])
 }

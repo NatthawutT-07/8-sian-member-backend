@@ -32,6 +32,7 @@ export function readConfig(env = process.env) {
         }
       : null,
     production,
+    posOrigin: env.POS_ORIGIN || (production ? null : 'http://localhost:3001'),
     origin: env.FRONTEND_ORIGIN || 'http://localhost:5173',
     port: env.PORT || 3001,
     trustProxy: production ? 1 : false,

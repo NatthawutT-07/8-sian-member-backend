@@ -10,13 +10,18 @@ import { mountMembers } from './modules/members/member.routes.js';
 import { mountMemberLoyalty } from './modules/members/loyalty.routes.js';
 import { mountCoupons } from './modules/coupons/coupons.routes.js';
 import { mountAdmin } from './modules/admin/admin.routes.js';
+import { mountPos } from './pos/routes.js';
 
 export async function createApp({ db, config }) {
   const app = express();
   app.set('trust proxy', config.trustProxy);
   app.use(
     helmet(),
-    cors({ origin: config.origin, credentials: true, exposedHeaders: ['Retry-After'] }),
+    cors({
+      origin: [config.origin, config.posOrigin].filter(Boolean),
+      credentials: true,
+      exposedHeaders: ['Retry-After'],
+    }),
     express.json({ limit: '8kb' }),
   );
   app.use(
@@ -29,7 +34,7 @@ export async function createApp({ db, config }) {
     res.vary('Cookie');
     next();
   });
-  app.use('/api', originGuard(config.origin));
+  app.use('/api', originGuard([config.origin, config.posOrigin].filter(Boolean)));
   app.get('/api/health', async (req, res) => {
     try {
       await db.$queryRaw`SELECT 1`;
@@ -44,6 +49,7 @@ export async function createApp({ db, config }) {
   mountMemberLoyalty(app, db, requireMember);
   mountCoupons(app, db, requireMember);
   await mountAdmin(app, db, config);
+  await mountPos(app, db, config);
   app.use(errorHandler);
   return app;
 }
