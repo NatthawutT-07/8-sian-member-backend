@@ -1,5 +1,4 @@
 import express from 'express';
-import { fileURLToPath } from 'node:url';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { hashPassword, verifyPassword, sessionToken, digest } from '../shared/security.js';
@@ -233,5 +232,4 @@ export async function mountPos(app, db, config) {
     }
   });
   app.use('/api/pos', router);
-  app.use('/pos', express.static(fileURLToPath(new URL('../../../pos/web/', import.meta.url))));
 }

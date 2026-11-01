@@ -268,7 +268,7 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
     assert.equal(visits.length, 1);
     assert.equal(audits.filter((a) => a.action === 'POS_PAID').length, 1);
     assert.equal((await call('checkout', { ...bill, receivedSatang: 30000 })).status, 409);
-    assert.equal((await fetch(`${base}/pos/`)).status, 200);
+    assert.equal((await fetch(`${base}/pos/`)).status, 404);
     const transfer = {
       ...bill,
       memberCode: undefined,
