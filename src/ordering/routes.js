@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
+import { locationError } from './location.js';
 import { parseBody } from '../shared/http-validation.js';
 import { orderInput, orderingError, submitOrder, closeTable, activateTable } from './service.js';
 import { menuFields, presentMenuItem, mountMenuImages, mountAdminMenuImages } from './images.js';
@@ -75,7 +76,10 @@ export function mountPublicOrdering(app, db) {
     }),
     orderingHandler(async (req, res) => {
       if (!uuid.safeParse(req.params.token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
-      const data = parseBody(orderInput, req.body, res);
+      const { location, ...order } = req.body || {};
+      const denied = locationError(location);
+      if (denied) return res.status(422).json({ message: denied });
+      const data = parseBody(orderInput, order, res);
       if (data) res.json(await submitOrder(db, req.params.token, data));
     }),
   );

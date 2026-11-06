@@ -267,8 +267,9 @@ try {
   chefResult = await request(`pos/kitchen/tables/${table.id}/${sale.tableSessionId}/summary`, {
     role: 'chef',
   });
-  assert.equal(chefResult.data.quantity, 2);
-  assert.equal(chefResult.data.items[0].pending, 2);
+  assert.equal(chefResult.data.quantity, 0);
+  assert.deepEqual(chefResult.data.items, []);
+  assert.equal(chefResult.data.orderCount, 0);
   assert.equal(chefResult.data.receiptNumber, sale.receiptNumber);
   chefResult = await request(`pos/kitchen/orders/${firstOrderId}/ticket`, { role: 'chef' });
   assert.equal(chefResult.data.tableNumber, 1);
@@ -295,9 +296,10 @@ try {
   chefResult = await request(`pos/kitchen/tables/${table.id}/${sale.tableSessionId}/summary`, {
     role: 'chef',
   });
-  assert.equal(chefResult.data.quantity, 7);
+  assert.equal(chefResult.data.quantity, 2);
+  assert.equal(chefResult.data.orderCount, 1);
   assert.equal(chefResult.data.items[0].completed, 2);
-  assert.equal(chefResult.data.items[0].pending, 5);
+  assert.equal(chefResult.data.items[0].pending, 0);
   const otherTable = await db.diningTable.findUnique({ where: { number: 2 } });
   const otherSession = randomUUID();
   await db.diningTable.update({ where: { id: otherTable.id }, data: { sessionId: otherSession } });
@@ -316,6 +318,7 @@ try {
     401,
   );
   await closeTable(db, table.id, sale.tableSessionId, actor);
+  assert.equal((await request('pos/kitchen/tables', { role: 'chef' })).data.some((row) => row.id === table.id), false);
   assert.equal(
     (
       await request(`pos/kitchen/tables/${table.id}/${sale.tableSessionId}/summary`, {

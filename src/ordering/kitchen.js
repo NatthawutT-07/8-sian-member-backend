@@ -24,7 +24,7 @@ export async function tableSummary(db, id, sessionId) {
       if (!table?.sessionId || table.sessionId !== sessionId)
         throw orderingError('โต๊ะปิดแล้วหรือเปลี่ยนรอบลูกค้า', 409);
       const orders = await tx.tableOrder.findMany({
-        where: { tableId: id, sessionId, status: { in: ['NEW', 'DONE'] } },
+        where: { tableId: id, sessionId, status: 'DONE' },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
       const items = new Map();
