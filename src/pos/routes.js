@@ -99,7 +99,7 @@ export async function mountPos(app, db, config) {
           /^\/kitchen\/tables\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+\/summary$/.test(req.path))) ||
       (req.method === 'POST' &&
         (req.path === '/logout' ||
-          /^\/kitchen\/orders\/[a-zA-Z0-9-]+\/complete$/.test(req.path) ||
+          /^\/kitchen\/orders\/[a-zA-Z0-9-]+\/(complete|cancel)$/.test(req.path) ||
           (req.path === '/hardware/events' &&
             ['PRINT_KITCHEN', 'TEST_PRINT', 'CONNECT'].includes(req.body?.operation))));
     if (!allowed)

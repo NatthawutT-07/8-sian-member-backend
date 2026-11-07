@@ -1,4 +1,43 @@
 import { orderingError } from './service.js';
+import { z } from 'zod';
+import { parseBody } from '../shared/http-validation.js';
+
+const cancelInput = z.object({
+  sessionId: z.string().uuid(),
+  menuItemId: z.string().uuid().optional(),
+}).strict();
+
+export async function cancelKitchenOrder(db, id, data, actor) {
+  return db.$transaction(async (tx) => {
+    const order = await tx.tableOrder.findUnique({ where: { id } });
+    if (!order) throw orderingError('ไม่พบออเดอร์', 404);
+    if (order.sessionId !== data.sessionId || order.status !== 'NEW')
+      throw orderingError('ออเดอร์เปลี่ยนสถานะแล้ว กรุณาโหลดข้อมูลใหม่');
+    const locked = await tx.diningTable.updateMany({
+      where: { id: order.tableId, sessionId: data.sessionId },
+      data: { version: { increment: 1 } },
+    });
+    if (locked.count !== 1) throw orderingError('โต๊ะปิดแล้วหรือเปลี่ยนรอบลูกค้า');
+    const removed = data.menuItemId
+      ? order.items.filter((item) => item.menuItemId === data.menuItemId)
+      : order.items;
+    if (!removed.length) throw orderingError('รายการนี้ถูกยกเลิกแล้ว กรุณาโหลดข้อมูลใหม่');
+    const remaining = data.menuItemId
+      ? order.items.filter((item) => item.menuItemId !== data.menuItemId)
+      : [];
+    const changed = await tx.tableOrder.updateMany({
+      where: { id, sessionId: data.sessionId, status: 'NEW' },
+      data: remaining.length ? { items: remaining } : { status: 'CANCELLED' },
+    });
+    if (changed.count !== 1) throw orderingError('ออเดอร์เปลี่ยนสถานะแล้ว กรุณาโหลดข้อมูลใหม่');
+    await tx.auditLog.create({ data: {
+      actor, action: data.menuItemId ? 'KITCHEN_ITEM_CANCELLED' : 'KITCHEN_ORDER_CANCELLED',
+      details: { orderId: id, tableId: order.tableId, sessionId: data.sessionId,
+        removedItems: removed, remainingItems: remaining },
+    } });
+    return { ok: true };
+  }, { isolationLevel: 'Serializable' });
+}
 
 export async function kitchenTicket(db, id) {
   const order = await db.tableOrder.findUnique({
@@ -88,6 +127,10 @@ export async function completeKitchenOrder(db, id, actor) {
 }
 
 export function mountKitchen(router, db, handler) {
+  router.post('/kitchen/orders/:id/cancel', handler(async (req, res) => {
+    const data = parseBody(cancelInput, req.body, res);
+    if (data) res.json(await cancelKitchenOrder(db, req.params.id, data, req.posActor));
+  }));
   router.get(
     '/kitchen/orders',
     handler(async (req, res) => {
