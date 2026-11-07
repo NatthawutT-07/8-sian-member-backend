@@ -92,7 +92,8 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
     },
     posSale: {
       findMany: async ({ where } = {}) =>
-        where?.shiftId ? sales.filter((sale) => sale.shiftId === where.shiftId) : sales,
+        where?.shiftId ? sales.filter((sale) => sale.shiftId === where.shiftId) :
+        where?.createdAt ? sales.filter((sale) => sale.createdAt >= where.createdAt.gte && sale.createdAt < where.createdAt.lt) : sales,
       findUnique: async ({ where }) =>
         sales.find((s) => (where.id ? s.id === where.id : s.key === where.key)),
       create: async ({ data }) => {
@@ -231,7 +232,7 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
       200,
     );
     assert.equal(shifts.length, 1);
-    assert.equal((await call(`shifts/${bill.shiftId}/report`)).status, 409);
+    assert.equal((await call(`shifts/${bill.shiftId}/report`)).status, 403);
     const paid = await call('checkout', bill);
     assert.equal(paid.status, 200);
     const paidReceipt = await paid.json();
@@ -279,12 +280,19 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
     };
     assert.equal((await call('checkout', { ...transfer, memberPhone: '0899999999' })).status, 400);
     assert.equal((await call('checkout', transfer)).status, 200);
-    const report = await (await call(`reports/daily?date=${businessDate()}`)).json();
+    assert.equal((await call(`reports/daily?date=${businessDate()}`)).status, 403);
+    const report = await (await call('shift')).json();
     assert.equal(report.summary.billCount, 2);
     assert.equal(report.summary.totalSatang, 39800);
     assert.equal(report.summary.cashSatang, 19900);
     assert.equal(report.summary.transferSatang, 19900);
-    assert.equal((await call('reports/daily?date=2026-02-30')).status, 400);
+    assert.equal((await call('reports/daily?date=2026-02-30')).status, 403);
+    const todaySale = sales[0];
+    const originalDate = todaySale.createdAt;
+    todaySale.createdAt = new Date(Date.now() - 86400000);
+    assert.equal((await call('sales/' + todaySale.id)).status, 403);
+    assert.ok(!(await (await call('sales')).json()).some((sale) => sale.key === todaySale.key));
+    todaySale.createdAt = originalDate;
     const close = { shiftId: bill.shiftId, countedCashSatang: 29800 };
     const closed = await (await call('shift/close', close)).json();
     assert.equal(closed.shift.expectedCashSatang, 29900);
@@ -296,8 +304,13 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
     assert.equal(shiftReceipt.summary.transferSatang, 19900);
     assert.equal(shiftReceipt.items[0].quantity, 2);
     assert.equal(shiftReceipt.shift.closedByName, user.displayName);
-    assert.equal((await (await call('shifts/closed')).json()).length, 1);
-    assert.equal((await call('shifts/missing/report')).status, 404);
+    assert.equal((await call('shifts/closed')).status, 403);
+    assert.equal((await call('shifts/missing/report')).status, 403);
+    const closedTime = shifts[0].closedAt;
+    shifts[0].closedAt = new Date(Date.now() - 16 * 60000);
+    assert.equal((await call(`shifts/${bill.shiftId}/report`)).status, 403);
+    assert.equal((await call('shift/close', close)).status, 400);
+    shifts[0].closedAt = closedTime;
     assert.equal((await call('shift/close', close)).status, 200);
     assert.equal(audits.filter((a) => a.action === 'POS_CLOSE').length, 1);
     assert.equal(

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { parseBody } from '../shared/http-validation.js';
 import { withCashierNames } from './sale-receipts.js';
 import { claimShiftOutput } from './shift-reports.js';
+import { businessDate } from './shifts.js';
 
 const saleId = z.string().min(1).max(100);
 const eventInput = z
@@ -53,6 +54,8 @@ export function mountHardware(router, db) {
     if (!saleId.safeParse(req.params.id).success) return res.sendStatus(400);
     const sale = await db.posSale.findUnique({ where: { id: req.params.id } });
     if (!sale) return res.status(404).json({ message: 'ไม่พบบิลที่บันทึกแล้ว' });
+    if (businessDate(new Date(sale.createdAt)) !== businessDate())
+      return res.status(403).json({ message: 'POS ดูและพิมพ์บิลได้เฉพาะวันนี้ (เวลาไทย)' });
     res.json((await withCashierNames(db, [sale]))[0]);
   });
   router.post('/hardware/claim', async (req, res) => {

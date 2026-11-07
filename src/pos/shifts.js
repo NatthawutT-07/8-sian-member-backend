@@ -74,6 +74,10 @@ export async function closeShift(db, data, actor) {
       const shift = await tx.posShift.findUnique({ where: { id: data.shiftId } });
       if (!shift) throw new Error('ไม่พบรอบเปิดร้าน');
       if (shift.closedAt) {
+        const age = Date.now() - new Date(shift.closedAt).getTime();
+        if (shift.closedBy !== actor || age < 0 || age > 15 * 60000 ||
+          await tx.posShift.findUnique({ where: { activeSlot: 'STORE' } }))
+          throw new Error('POS ไม่อนุญาตเรียกดูข้อมูลกะเก่า');
         if (shift.countedCashSatang !== data.countedCashSatang)
           throw new Error('รอบนี้ปิดไปแล้ว กรุณาตรวจสรุปเดิม');
         return { shift, summary: await salesSummary(tx, { shiftId: shift.id }) };

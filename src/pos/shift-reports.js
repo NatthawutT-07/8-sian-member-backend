@@ -101,18 +101,16 @@ export async function claimShiftOutput(db, id, actor, now = new Date()) {
 
 export function mountShiftReports(router, db) {
   router.get('/shifts/closed', async (_req, res) => {
-    res.json(
-      await db.posShift.findMany({
-        where: { closedAt: { not: null } },
-        orderBy: { closedAt: 'desc' },
-        take: 50,
-        select: { id: true, businessDate: true, openedAt: true, closedAt: true },
-      }),
-    );
+    res.status(403).json({ message: 'POS ไม่อนุญาตดูประวัติกะเก่า' });
   });
   router.get('/shifts/:id/report', async (req, res, next) => {
     if (!req.params.id || req.params.id.length > 100) return res.sendStatus(400);
     try {
+      const shift = await db.posShift.findUnique({ where: { id: req.params.id } });
+      const age = shift?.closedAt ? Date.now() - new Date(shift.closedAt).getTime() : Infinity;
+      const active = await db.posShift.findUnique({ where: { activeSlot: 'STORE' } });
+      if (!shift || shift.closedBy !== req.posActor || age < 0 || age > 15 * 60000 || active)
+        return res.status(403).json({ message: 'ดูได้เฉพาะใบสรุปกะที่ตนเพิ่งปิดภายใน 15 นาที และยังไม่เปิดกะใหม่' });
       res.json(await shiftReport(db, req.params.id));
     } catch (error) {
       if (error.code === 'POS_SHIFT_NOT_FOUND')

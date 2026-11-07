@@ -169,22 +169,8 @@ export async function mountPos(app, db, config) {
     res.json({ ok: true });
   });
   router.get('/reports/daily', async (req, res) => {
-    const date = typeof req.query.date === 'string' ? req.query.date : businessDate();
-    let range;
-    try {
-      range = dayRange(date);
-    } catch {
-      return res.status(400).json({ message: 'วันที่ไม่ถูกต้อง' });
-    }
-    res.json({
-      date,
-      timezone: 'Asia/Bangkok',
-      summary: await salesSummary(db, { createdAt: range }),
-      shifts: await db.posShift.findMany({
-        where: { businessDate: date },
-        orderBy: { openedAt: 'asc' },
-      }),
-    });
+    return res.status(403).json({ message: 'POS ดูได้เฉพาะกะปัจจุบัน ไม่อนุญาตดูรายงานรายวันย้อนหลัง' });
+
   });
   router.post('/scan', async (req, res) => {
     const input = parseBody(
@@ -227,7 +213,7 @@ export async function mountPos(app, db, config) {
       .json({ message: 'ไม่พบสินค้า หรือกรุณากรอกเบอร์สมาชิก 10 หลัก / สแกน QR สะสมครั้ง' });
   });
   router.get('/sales', async (req, res) => {
-    const sales = await db.posSale.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
+    const sales = await db.posSale.findMany({ where: { createdAt: dayRange(businessDate()) }, orderBy: { createdAt: 'desc' }, take: 50 });
     res.json(await withCashierNames(db, sales));
   });
   router.post('/checkout', async (req, res, next) => {
