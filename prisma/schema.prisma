@@ -117,6 +117,7 @@ model PosProduct {
   priceSatang Int
   group String @default("MAIN")
   active Boolean @default(true)
+  sortOrder Int @default(1000000)
   createdAt DateTime @default(now())
 }
 
@@ -158,6 +159,9 @@ model DiningTable {
   openedBy String?
   closedAt DateTime?
   version Int @default(0)
+  lastOrderAt DateTime?
+  orderWindowAt DateTime?
+  orderWindowCount Int @default(0)
   createdAt DateTime @default(now())
   orders TableOrder[]
 }
@@ -173,6 +177,7 @@ model OrderingMenuItem {
   category String
   name String
   active Boolean @default(true)
+  sortOrder Int @default(1000000)
   imageData Bytes?
   imageMime String?
   imageVersion String?

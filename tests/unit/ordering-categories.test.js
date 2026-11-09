@@ -75,10 +75,11 @@ test('public menu returns configured order filtered to visible menu categories o
     }),
   };
   db.orderingMenuItem.findMany = async ({ where }) => {
-    assert.deepEqual(where, { active: true, zone: { in: ['standard'] } });
+    assert.deepEqual(where, { active: true });
     return [
-      { id: 'dessert', category: 'ของหวาน' },
-      { id: 'meat', category: 'เนื้อสัตว์' },
+      { id: 'dessert', category: 'ของหวาน', zone: 'standard' },
+      { id: 'meat', category: 'เนื้อสัตว์', zone: 'standard' },
+      { id: 'hidden', category: 'อาหารทะเล', zone: 'premium' },
     ];
   };
   mountPublicOrdering(

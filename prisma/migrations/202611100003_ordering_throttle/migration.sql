@@ -1,0 +1,4 @@
+ALTER TABLE "DiningTable"
+  ADD COLUMN "lastOrderAt" TIMESTAMP(3),
+  ADD COLUMN "orderWindowAt" TIMESTAMP(3),
+  ADD COLUMN "orderWindowCount" INTEGER NOT NULL DEFAULT 0;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { digest } from '../shared/security.js';
+import { checkOrderThrottle } from './order-throttle.js';
 
 export const orderInput = z
   .object({
@@ -45,6 +46,9 @@ export async function openPaidTable(tx, id, actor) {
       openedAt: new Date(),
       openedBy: actor,
       closedAt: null,
+      lastOrderAt: null,
+      orderWindowAt: null,
+      orderWindowCount: 0,
       version: { increment: 1 },
     },
   });
@@ -62,6 +66,9 @@ export async function closeTable(db, id, sessionId, actor) {
           orderingEnabled: false,
           zones: [],
           closedAt: new Date(),
+          lastOrderAt: null,
+          orderWindowAt: null,
+          orderWindowCount: 0,
           version: { increment: 1 },
         },
       });
@@ -119,7 +126,7 @@ export async function activateTable(db, id, sessionId, zones, actor) {
   );
 }
 
-export async function submitOrder(db, token, data) {
+async function saveOrderOnce(db, token, data) {
   const hash = orderHash(data, token);
   return db.$transaction(
     async (tx) => {
@@ -133,6 +140,7 @@ export async function submitOrder(db, token, data) {
       const table = await tx.diningTable.findUnique({ where: { qrToken: token } });
       if (!table?.sessionId || !table.orderingEnabled || table.sessionId !== data.sessionId)
         throw orderingError('โต๊ะปิดแล้วหรือเปลี่ยนรอบลูกค้า กรุณาติดต่อพนักงาน', 403);
+      const throttle = checkOrderThrottle(table, new Date());
       // Serialize orders with closing/reopening the table, including requests already in flight.
       const locked = await tx.diningTable.updateMany({
         where: {
@@ -141,9 +149,12 @@ export async function submitOrder(db, token, data) {
           orderingEnabled: true,
           version: table.version,
         },
-        data: { version: { increment: 1 } },
+        data: { version: { increment: 1 }, ...throttle },
       });
-      if (locked.count !== 1) throw orderingError('สถานะโต๊ะเปลี่ยนแล้ว กรุณาติดต่อพนักงาน', 403);
+      if (locked.count !== 1)
+        throw Object.assign(orderingError('สถานะโต๊ะกำลังเปลี่ยน กรุณาลองรายการเดิมอีกครั้ง'), {
+          code: 'ORDER_RACE',
+        });
       const menu = await tx.orderingMenuItem.findMany({
         where: { id: { in: data.items.map((item) => item.menuItemId) }, active: true },
         select: { id: true, zone: true, category: true, name: true },
@@ -172,6 +183,22 @@ export async function submitOrder(db, token, data) {
       });
       return { ok: true };
     },
-    { isolationLevel: 'Serializable' },
+    // The conditional update takes a row lock until commit and rechecks the
+    // session/version after waiting. It serializes this table with other orders
+    // and closing, without serializable predicate conflicts between 100 tables.
+    { isolationLevel: 'ReadCommitted' },
   );
+}
+
+export async function submitOrder(db, token, data) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await saveOrderOnce(db, token, data);
+    } catch (error) {
+      if (attempt >= 3 || !['ORDER_RACE', 'P2002', 'P2034'].includes(error.code)) throw error;
+      // Keep exactly the same idempotency key; a competing commit is acknowledged
+      // on the next read, while a new order must pass the durable table throttle.
+      await new Promise((resolve) => setTimeout(resolve, 20 + Math.floor(Math.random() * 30)));
+    }
+  }
 }

@@ -1,6 +1,8 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { orderingError } from './service.js';
+import { invalidateOrderingMenu } from './menu-cache.js';
+import { menuImage } from './image-cache.js';
 
 export const menuFields = {
   id: true,
@@ -52,16 +54,14 @@ export function mountMenuImages(app, db, handler) {
   app.get(
     '/api/ordering-images/:id/:version',
     handler(async (req, res) => {
-      const item = await db.orderingMenuItem.findFirst({
-        where: { id: req.params.id, imageVersion: req.params.version },
-        select: { imageData: true, imageMime: true },
-      });
+      const item = await menuImage(db, req.params.id, req.params.version);
       if (!item?.imageData || !['image/jpeg', 'image/png', 'image/webp'].includes(item.imageMime))
         throw orderingError('ไม่พบรูปอาหาร', 404);
       res.set('Content-Type', item.imageMime);
       res.set('Content-Disposition', 'inline');
       // Allow customer web origins configured by CORS, including split API/web domains.
       res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
       res.send(Buffer.from(item.imageData));
     }),
   );
@@ -88,6 +88,7 @@ export function mountAdminMenuImages(app, db, handler) {
         });
         return item;
       });
+      invalidateOrderingMenu(db);
       res.json(presentMenuItem(item));
     }),
   );
@@ -109,6 +110,7 @@ export function mountAdminMenuImages(app, db, handler) {
         });
         return item;
       });
+      invalidateOrderingMenu(db);
       res.json(presentMenuItem(item));
     }),
   );

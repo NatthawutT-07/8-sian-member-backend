@@ -4,12 +4,14 @@ import { locationError } from './location.js';
 import { parseBody } from '../shared/http-validation.js';
 import { orderInput, orderingError, submitOrder, closeTable, activateTable } from './service.js';
 import { menuFields, presentMenuItem, mountMenuImages, mountAdminMenuImages } from './images.js';
+import { menuOrderBy, itemOrderInput, saveItemOrder } from './item-order.js';
 import {
-  orderedCategories,
-  getCategories,
-  saveCategoryOrder,
-  categoryOrderInput,
-} from './categories.js';
+  orderingCatalog,
+  tableMenu,
+  tableMenuVersion,
+  invalidateOrderingMenu,
+} from './menu-cache.js';
+import { getCategories, saveCategoryOrder, categoryOrderInput } from './categories.js';
 
 const uuid = z.string().uuid();
 const menuInput = z
@@ -24,8 +26,10 @@ export const orderingHandler = (fn) => async (req, res, next) => {
   try {
     await fn(req, res);
   } catch (error) {
-    if (error.orderingStatus)
+    if (error.orderingStatus) {
+      if (error.retryAfter) res.set('Retry-After', String(error.retryAfter));
       return res.status(error.orderingStatus).json({ message: error.message });
+    }
     if (['P2002', 'P2034'].includes(error.code))
       return res
         .status(409)
@@ -36,6 +40,10 @@ export const orderingHandler = (fn) => async (req, res, next) => {
 };
 
 export function mountPublicOrdering(app, db) {
+  app.use(
+    '/api/ordering-images',
+    rateLimit({ windowMs: 60000, limit: 6000, standardHeaders: 'draft-8', legacyHeaders: false }),
+  );
   mountMenuImages(app, db, orderingHandler);
   // Customers often share the restaurant Wi-Fi IP. Allow menu polling separately
   // from account APIs and limit submissions per table rather than per shared IP.
@@ -43,32 +51,39 @@ export function mountPublicOrdering(app, db) {
     '/api/ordering',
     rateLimit({
       windowMs: 60000,
-      limit: 600,
+      limit: 1800,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
       message: { message: 'มีคำขอจำนวนมาก กรุณารอสักครู่' },
     }),
   );
+  const activeTable = async (token) => {
+    if (!uuid.safeParse(token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
+    const table = await db.diningTable.findUnique({
+      where: { qrToken: token },
+      select: { number: true, sessionId: true, orderingEnabled: true, zones: true },
+    });
+    if (!table) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
+    if (!table.sessionId || !table.orderingEnabled)
+      throw orderingError('โต๊ะยังไม่เปิดสั่งอาหาร กรุณาติดต่อพนักงาน', 403);
+    return table;
+  };
   app.get(
     '/api/ordering/:token',
     orderingHandler(async (req, res) => {
-      if (!uuid.safeParse(req.params.token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
-      const table = await db.diningTable.findUnique({ where: { qrToken: req.params.token } });
-      if (!table) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
-      if (!table.sessionId || !table.orderingEnabled)
-        return res.status(403).json({
-          message: 'โต๊ะยังไม่เปิดสั่งอาหาร กรุณาติดต่อพนักงาน',
-          tableNumber: table.number,
-        });
-      const menu = await db.orderingMenuItem.findMany({
-        where: { active: true, zone: { in: table.zones } },
-        orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
-        select: menuFields,
-      });
-      const positions = await db.orderingCategory.findMany();
+      const table = await activeTable(req.params.token);
+      res.json(tableMenu(table, await orderingCatalog(db)));
+    }),
+  );
+  app.get(
+    '/api/ordering/:token/status',
+    orderingHandler(async (req, res) => {
+      const table = await activeTable(req.params.token);
+      const catalog = await orderingCatalog(db);
       res.json({
         tableNumber: table.number,
         sessionId: table.sessionId,
-        categories: orderedCategories(menu, positions),
-        menu: menu.map(presentMenuItem),
+        menuVersion: tableMenuVersion(table, catalog),
       });
     }),
   );
@@ -76,7 +91,9 @@ export function mountPublicOrdering(app, db) {
     '/api/ordering/:token/orders',
     rateLimit({
       windowMs: 60000,
-      limit: 15,
+      limit: 60,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
       keyGenerator: (req) =>
         uuid.safeParse(req.params.token).success ? req.params.token : 'invalid-table',
       message: { message: 'ส่งรายการบ่อยเกินไป กรุณารอสักครู่' },
@@ -171,6 +188,17 @@ export function mountPosOrdering(router, db) {
 // Mounted after the existing admin authentication middleware.
 export function mountOrderingAdmin(app, db, config) {
   mountAdminMenuImages(app, db, orderingHandler);
+  app.put(
+    '/api/admin/ordering-item-order',
+    orderingHandler(async (req, res) => {
+      const data = parseBody(itemOrderInput, req.body, res);
+      if (data) {
+        const result = await saveItemOrder(db, data, req.admin.id);
+        invalidateOrderingMenu(db);
+        res.json(result);
+      }
+    }),
+  );
   app.get(
     '/api/admin/ordering-categories',
     orderingHandler(async (req, res) => {
@@ -181,7 +209,11 @@ export function mountOrderingAdmin(app, db, config) {
     '/api/admin/ordering-categories',
     orderingHandler(async (req, res) => {
       const data = parseBody(categoryOrderInput, req.body, res);
-      if (data) res.json(await saveCategoryOrder(db, data.categories, req.admin.id));
+      if (data) {
+        const result = await saveCategoryOrder(db, data.categories, req.admin.id);
+        invalidateOrderingMenu(db);
+        res.json(result);
+      }
     }),
   );
   const tables = () => db.diningTable.findMany({ orderBy: { number: 'asc' } });
@@ -225,7 +257,7 @@ export function mountOrderingAdmin(app, db, config) {
       res.json(
         (
           await db.orderingMenuItem.findMany({
-            orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
+            orderBy: menuOrderBy,
             select: menuFields,
           })
         ).map(presentMenuItem),
@@ -252,6 +284,7 @@ export function mountOrderingAdmin(app, db, config) {
       });
       return item;
     });
+    invalidateOrderingMenu(db);
     res.json(presentMenuItem(item));
   };
   app.post('/api/admin/ordering-menu', orderingHandler(saveMenu));

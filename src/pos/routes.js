@@ -13,6 +13,7 @@ import { reserveCoupon } from './coupon-discounts.js';
 import { mountPosOrdering } from '../ordering/routes.js';
 import { orderingHandler } from '../ordering/routes.js';
 import { mountKitchen } from '../ordering/kitchen.js';
+import { productOrderBy } from './product-order.js';
 import {
   openInput,
   closeInput,
@@ -117,7 +118,7 @@ export async function mountPos(app, db, config) {
     res.clearCookie(cookieName, cookie).json({ ok: true });
   });
   router.get('/products', async (req, res) =>
-    res.json(await db.posProduct.findMany({ orderBy: { name: 'asc' }, take: 2000 })),
+    res.json(await db.posProduct.findMany({ orderBy: productOrderBy, take: 2000 })),
   );
   router.all('/products', (req, res) =>
     res.status(403).json({ message: 'พนักงานไม่มีสิทธิ์แก้สินค้า กรุณาติดต่อแอดมินผ่านเว็บ' }),
@@ -169,8 +170,9 @@ export async function mountPos(app, db, config) {
     res.json({ ok: true });
   });
   router.get('/reports/daily', async (req, res) => {
-    return res.status(403).json({ message: 'POS ดูได้เฉพาะกะปัจจุบัน ไม่อนุญาตดูรายงานรายวันย้อนหลัง' });
-
+    return res
+      .status(403)
+      .json({ message: 'POS ดูได้เฉพาะกะปัจจุบัน ไม่อนุญาตดูรายงานรายวันย้อนหลัง' });
   });
   router.post('/scan', async (req, res) => {
     const input = parseBody(
@@ -213,7 +215,11 @@ export async function mountPos(app, db, config) {
       .json({ message: 'ไม่พบสินค้า หรือกรุณากรอกเบอร์สมาชิก 10 หลัก / สแกน QR สะสมครั้ง' });
   });
   router.get('/sales', async (req, res) => {
-    const sales = await db.posSale.findMany({ where: { createdAt: dayRange(businessDate()) }, orderBy: { createdAt: 'desc' }, take: 50 });
+    const sales = await db.posSale.findMany({
+      where: { createdAt: dayRange(businessDate()) },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
     res.json(await withCashierNames(db, sales));
   });
   router.post('/checkout', async (req, res, next) => {

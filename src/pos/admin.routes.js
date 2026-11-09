@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { hashPassword } from '../shared/security.js';
 import { parseBody } from '../shared/http-validation.js';
 import { productInput } from './checkout.js';
+import { productOrderBy, productOrderInput, saveProductOrder } from './product-order.js';
 
 const userInput = z
   .object({
@@ -24,6 +25,16 @@ const userSelect = {
 };
 // Mounted only after the existing /api/admin authentication middleware.
 export function mountPosAdmin(app, db) {
+  app.put('/api/admin/pos/product-order', async (req, res) => {
+    const data = parseBody(productOrderInput, req.body, res);
+    if (!data) return;
+    try {
+      res.json(await saveProductOrder(db, data, req.admin.id));
+    } catch (error) {
+      if (error.status === 409) return res.status(409).json({ message: error.message });
+      throw error;
+    }
+  });
   app.get('/api/admin/pos/coupon-rules', async (req, res) =>
     res.json(
       await db.campaign.findMany({
@@ -113,7 +124,7 @@ export function mountPosAdmin(app, db) {
     res.json(user);
   });
   app.get('/api/admin/pos/products', async (req, res) =>
-    res.json(await db.posProduct.findMany({ orderBy: { name: 'asc' }, take: 2000 })),
+    res.json(await db.posProduct.findMany({ orderBy: productOrderBy, take: 2000 })),
   );
   app.post('/api/admin/pos/products', async (req, res) => {
     const data = parseBody(productInput, req.body, res);
