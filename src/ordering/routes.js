@@ -4,6 +4,12 @@ import { locationError } from './location.js';
 import { parseBody } from '../shared/http-validation.js';
 import { orderInput, orderingError, submitOrder, closeTable, activateTable } from './service.js';
 import { menuFields, presentMenuItem, mountMenuImages, mountAdminMenuImages } from './images.js';
+import {
+  orderedCategories,
+  getCategories,
+  saveCategoryOrder,
+  categoryOrderInput,
+} from './categories.js';
 
 const uuid = z.string().uuid();
 const menuInput = z
@@ -52,16 +58,17 @@ export function mountPublicOrdering(app, db) {
           message: 'โต๊ะยังไม่เปิดสั่งอาหาร กรุณาติดต่อพนักงาน',
           tableNumber: table.number,
         });
+      const menu = await db.orderingMenuItem.findMany({
+        where: { active: true, zone: { in: table.zones } },
+        orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
+        select: menuFields,
+      });
+      const positions = await db.orderingCategory.findMany();
       res.json({
         tableNumber: table.number,
         sessionId: table.sessionId,
-        menu: (
-          await db.orderingMenuItem.findMany({
-            where: { active: true, zone: { in: table.zones } },
-            orderBy: [{ zone: 'asc' }, { category: 'asc' }, { name: 'asc' }],
-            select: menuFields,
-          })
-        ).map(presentMenuItem),
+        categories: orderedCategories(menu, positions),
+        menu: menu.map(presentMenuItem),
       });
     }),
   );
@@ -164,6 +171,19 @@ export function mountPosOrdering(router, db) {
 // Mounted after the existing admin authentication middleware.
 export function mountOrderingAdmin(app, db, config) {
   mountAdminMenuImages(app, db, orderingHandler);
+  app.get(
+    '/api/admin/ordering-categories',
+    orderingHandler(async (req, res) => {
+      res.json(await getCategories(db));
+    }),
+  );
+  app.put(
+    '/api/admin/ordering-categories',
+    orderingHandler(async (req, res) => {
+      const data = parseBody(categoryOrderInput, req.body, res);
+      if (data) res.json(await saveCategoryOrder(db, data.categories, req.admin.id));
+    }),
+  );
   const tables = () => db.diningTable.findMany({ orderBy: { number: 'asc' } });
   const present = (table) => ({
     ...table,

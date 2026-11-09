@@ -162,6 +162,11 @@ model DiningTable {
   orders TableOrder[]
 }
 
+model OrderingCategory {
+  name String @id
+  sortOrder Int @default(0)
+}
+
 model OrderingMenuItem {
   id String @id @default(uuid())
   zone String
