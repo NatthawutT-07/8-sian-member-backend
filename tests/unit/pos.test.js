@@ -17,6 +17,31 @@ test('POS calculates integer satang from the server catalog', () => {
   assert.equal(result.totalSatang, 3750);
   assert.equal(result.lines[0].name, 'ชา');
 });
+test('checkout accepts table zones and bounded QR hours; retry cannot change granted zones', async () => {
+  const data = {
+    ...input,
+    tableId: id,
+    ordering: { zones: ['หมูกระทะ', 'ทะเล'], qrHours: 2 },
+    printQr: true,
+  };
+  assert.equal(checkoutInput.safeParse(data).success, true);
+  assert.equal(checkoutInput.safeParse({ ...data, tableId: undefined }).success, false);
+  for (const qrHours of [0, 169, 1.5])
+    assert.equal(
+      checkoutInput.safeParse({ ...data, ordering: { zones: [], qrHours } }).success,
+      false,
+    );
+  const sale = { id: 'receipt', actor: 'owner', requestHash: requestHash(data) };
+  const db = {
+    posSale: { findUnique: async () => sale },
+    $transaction: () => assert.fail('must not write twice'),
+  };
+  assert.equal(await completeSale(db, data, 'owner'), sale);
+  await assert.rejects(
+    completeSale(db, { ...data, ordering: { zones: ['ทะเล'], qrHours: 2 } }, 'owner'),
+    { code: 'POS_KEY_MISMATCH' },
+  );
+});
 test('POS refuses client prices, fractional quantities and empty baskets', () => {
   assert.equal(checkoutInput.safeParse({ ...input, totalSatang: 1 }).success, false);
   assert.equal(

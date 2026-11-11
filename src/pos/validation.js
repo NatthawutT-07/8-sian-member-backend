@@ -32,6 +32,14 @@ export const checkoutInput = z
     key: z.string().uuid(),
     shiftId: z.string().uuid(),
     tableId: z.string().uuid().optional(),
+    ordering: z
+      .object({
+        zones: z.array(z.string().trim().min(1).max(80)).max(100),
+        qrHours: z.number().int().min(1).max(168),
+      })
+      .strict()
+      .optional(),
+    printQr: z.boolean().optional(),
     items,
     method: z.enum(['CASH', 'TRANSFER']),
     receivedSatang: z.number().int().min(0).max(100000000),
@@ -40,7 +48,8 @@ export const checkoutInput = z
     couponReservationId: z.string().uuid().optional(),
   })
   .strict()
-  .refine(oneMember, { message: 'เลือกสมาชิกจาก QR หรือเบอร์โทรอย่างใดอย่างหนึ่ง' });
+  .refine(oneMember, { message: 'เลือกสมาชิกจาก QR หรือเบอร์โทรอย่างใดอย่างหนึ่ง' })
+  .refine((data) => !data.ordering || !!data.tableId, { message: 'เลือกโต๊ะก่อนกำหนดโซนอาหาร' });
 export const couponReserveInput = z
   .object({ billKey: z.string().uuid(), code: z.string().regex(/^88\d{30}$/), items, ...member })
   .strict()

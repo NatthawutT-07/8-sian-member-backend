@@ -56,7 +56,9 @@ export async function completeSale(db, data, actor) {
         throw new Error('ยอดรับชำระไม่ถูกต้อง');
       const createdAt = new Date();
       const receiptNumber = await nextReceiptNumber(tx, createdAt);
-      const table = data.tableId ? await openPaidTable(tx, data.tableId, actor) : null;
+      const table = data.tableId
+        ? await openPaidTable(tx, data.tableId, actor, data.ordering)
+        : null;
       const sale = await tx.posSale.create({
         data: {
           receiptNumber,
@@ -96,6 +98,7 @@ export async function completeSale(db, data, actor) {
             discountSatang,
             couponId: coupon?.couponId,
             method: data.method,
+            ...(table ? { tableId: table.id, sessionId: table.sessionId, zones: data.ordering?.zones, qrHours: data.ordering?.qrHours } : {}),
           },
         },
       });

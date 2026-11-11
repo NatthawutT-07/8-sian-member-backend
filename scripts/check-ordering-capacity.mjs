@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { mountPublicOrdering } from '../src/ordering/routes.js';
 import { closeTable, openPaidTable, activateTable } from '../src/ordering/service.js';
+import { completeSale } from '../src/pos/checkout.js';
 
 const url = new URL(process.env.DATABASE_URL);
 assert.ok(
@@ -40,6 +41,10 @@ try {
     'OrderingCategory',
     'TableOrder',
     'AuditLog',
+    'PosSale',
+    'PosShift',
+    'PosProduct',
+    'PosReceiptCounter',
   ])
     await bootstrap.$executeRawUnsafe(
       `CREATE TABLE "${schema}"."${table}" (LIKE "public"."${table}" INCLUDING ALL)`,
@@ -63,6 +68,43 @@ try {
     zones: ['standard'],
   }));
   await db.diningTable.createMany({ data: tables });
+  // Payment and zone activation must commit together, including after a lost response.
+  const paidTable = await db.diningTable.create({ data: { number: 101 } });
+  const shift = await db.posShift.create({
+    data: { businessDate: '2026-11-11', openedBy: 'test', openingCashSatang: 0 },
+  });
+  const product = await db.posProduct.create({
+    data: { barcode: 'test-paid-zone', name: 'บุฟเฟต์', priceSatang: 19900 },
+  });
+  const checkout = {
+    key: randomUUID(),
+    shiftId: shift.id,
+    tableId: paidTable.id,
+    items: [{ productId: product.id, quantity: 1 }],
+    method: 'CASH',
+    receivedSatang: 20000,
+    expectedTotalSatang: 19900,
+    ordering: { zones: ['standard'], qrHours: 2 },
+    printQr: true,
+  };
+  await assert.rejects(
+    completeSale(db, { ...checkout, ordering: { zones: ['unknown-zone'], qrHours: 2 } }, 'test'),
+    /บางโซน/,
+  );
+  assert.equal(await db.posSale.count(), 0);
+  assert.equal((await db.diningTable.findUnique({ where: { id: paidTable.id } })).sessionId, null);
+  const paidSale = await completeSale(db, checkout, 'test');
+  const activePaidTable = await db.diningTable.findUnique({ where: { id: paidTable.id } });
+  assert.equal(activePaidTable.orderingEnabled, true);
+  assert.deepEqual(activePaidTable.zones, ['standard']);
+  assert.equal(activePaidTable.sessionId, paidSale.tableSessionId);
+  assert.ok(Math.abs(+activePaidTable.qrExpiresAt - Date.now() - 7200000) < 3000);
+  assert.equal((await completeSale(db, checkout, 'test')).id, paidSale.id);
+  assert.equal(await db.posSale.count(), 1);
+  assert.equal(
+    (await db.diningTable.findUnique({ where: { id: paidTable.id } })).qrToken,
+    activePaidTable.qrToken,
+  );
   const createServer = async (client) => {
     const app = express();
     app.use(express.json({ limit: '8kb' }));

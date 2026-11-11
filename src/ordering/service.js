@@ -32,20 +32,32 @@ export const orderHash = (data, token) =>
     }),
   );
 
-// Reserve a paid round atomically. Staff activate its zones after payment succeeds.
-export async function openPaidTable(tx, id, actor) {
+// New clients activate the selected zones in the payment transaction.
+// Older clients can still reserve a round and confirm zones afterwards.
+export async function openPaidTable(tx, id, actor, ordering) {
   const table = await tx.diningTable.findUnique({ where: { id } });
   if (!table) throw new Error('ไม่พบโต๊ะที่เลือก');
   if (table.sessionId) throw new Error('โต๊ะนี้เปิดใช้งานอยู่ กรุณาปิดรอบเดิมก่อนรับลูกค้ารอบใหม่');
+  const zones = ordering ? [...new Set(ordering.zones)].sort() : [];
+  if (ordering) {
+    const available = await tx.orderingMenuItem.findMany({
+      select: { zone: true },
+      distinct: ['zone'],
+    });
+    if (zones.some((zone) => !available.some((item) => item.zone === zone)))
+      throw new Error('บางโซนไม่มีในเมนูแล้ว กรุณาโหลดข้อมูลใหม่ก่อนรับเงิน');
+  }
+  const qrHours = ordering ? qrHoursInput.parse(ordering.qrHours) : null;
   const sessionId = randomUUID();
   const locked = await tx.diningTable.updateMany({
     where: { id, sessionId: null, version: table.version },
     data: {
       sessionId,
       qrToken: randomUUID(),
-      qrExpiresAt: null,
-      orderingEnabled: false,
-      zones: [],
+      qrExpiresAt: ordering ? new Date(Date.now() + qrHours * 3600000) : null,
+      ...(ordering ? { qrDurationHours: qrHours } : {}),
+      orderingEnabled: !!ordering,
+      zones,
       openedAt: new Date(),
       openedBy: actor,
       closedAt: null,
