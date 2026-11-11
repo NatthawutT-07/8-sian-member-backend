@@ -161,6 +161,12 @@ test('orders do not require GPS, but all endpoints and saved retries reject an e
   ])
     assert.equal((await call(path)).status, 403);
   assert.equal(writes, 1);
+  assert.equal(table.sessionId, sessionId, 'expiry must preserve the occupied table round');
+  assert.equal(
+    table.orderingEnabled,
+    true,
+    'expiry is enforced by the deadline, not automatic table closure',
+  );
 });
 
 test('admin lifetime setting affects the next round only and cannot revive an expired QR', async () => {
