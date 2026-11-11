@@ -111,7 +111,7 @@ export async function mountPos(app, db, config) {
   });
   mountKitchen(router, db, orderingHandler);
   mountHardware(router, db);
-  mountPosOrdering(router, db);
+  mountPosOrdering(router, db, config);
   mountShiftReports(router, db);
   router.post('/logout', async (req, res) => {
     await db.posSession.deleteMany({ where: { tokenHash: digest(token(req)) } });

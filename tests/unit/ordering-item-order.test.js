@@ -63,6 +63,7 @@ test('customer API uses saved ordering without exposing ranking numbers', async 
         number: 1,
         sessionId: 'session',
         orderingEnabled: true,
+        qrExpiresAt: new Date(Date.now() + 7200000),
         zones: ['ปกติ', 'พิเศษ'],
       }),
     },

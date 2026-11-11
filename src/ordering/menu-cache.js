@@ -49,6 +49,7 @@ export function tableMenuVersion(table, catalog) {
     JSON.stringify({
       catalog: catalog.version,
       session: table.sessionId,
+      expiresAt: table.qrExpiresAt,
       zones: [...table.zones].sort(),
     }),
   );
@@ -61,6 +62,7 @@ export function tableMenu(table, catalog) {
   return {
     tableNumber: table.number,
     sessionId: table.sessionId,
+    qrExpiresAt: table.qrExpiresAt,
     menuVersion: tableMenuVersion(table, catalog),
     categories: catalog.categories.filter((name) => categories.has(name)),
     menu,

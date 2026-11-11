@@ -53,6 +53,7 @@ test('server refuses a forged item from a zone not granted to the table', async 
         id: 'table',
         sessionId,
         orderingEnabled: true,
+        qrExpiresAt: new Date(Date.now() + 7200000),
         version: 1,
         zones: ['เนื้อสัตว์'],
       }),
@@ -63,7 +64,16 @@ test('server refuses a forged item from a zone not granted to the table', async 
   await assert.rejects(submitOrder(transaction(tx), token, data), { orderingStatus: 403 });
 });
 test('order retries return acknowledgement only and cannot change table, round or quantity', async () => {
-  const tx = { tableOrder: { findUnique: async () => ({ requestHash: orderHash(data, token) }) } };
+  const tx = {
+    tableOrder: { findUnique: async () => ({ requestHash: orderHash(data, token) }) },
+    diningTable: {
+      findUnique: async () => ({
+        sessionId,
+        orderingEnabled: true,
+        qrExpiresAt: new Date(Date.now() + 7200000),
+      }),
+    },
+  };
   assert.deepEqual(await submitOrder(transaction(tx), token, data), { ok: true });
   await assert.rejects(submitOrder(transaction(tx), randomUUID(), data), { orderingStatus: 409 });
   await assert.rejects(submitOrder(transaction(tx), token, { ...data, sessionId: randomUUID() }), {

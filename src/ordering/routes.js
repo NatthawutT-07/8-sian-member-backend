@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { locationError } from './location.js';
+import { requireActiveQr, qrHoursInput, presentTableQr } from './qr-session.js';
 import { parseBody } from '../shared/http-validation.js';
 import { orderInput, orderingError, submitOrder, closeTable, activateTable } from './service.js';
 import { menuFields, presentMenuItem, mountMenuImages, mountAdminMenuImages } from './images.js';
@@ -61,12 +61,16 @@ export function mountPublicOrdering(app, db) {
     if (!uuid.safeParse(token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
     const table = await db.diningTable.findUnique({
       where: { qrToken: token },
-      select: { number: true, sessionId: true, orderingEnabled: true, zones: true },
+      select: {
+        number: true,
+        sessionId: true,
+        orderingEnabled: true,
+        zones: true,
+        qrExpiresAt: true,
+      },
     });
     if (!table) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
-    if (!table.sessionId || !table.orderingEnabled)
-      throw orderingError('โต๊ะยังไม่เปิดสั่งอาหาร กรุณาติดต่อพนักงาน', 403);
-    return table;
+    return requireActiveQr(table);
   };
   app.get(
     '/api/ordering/:token',
@@ -83,6 +87,7 @@ export function mountPublicOrdering(app, db) {
       res.json({
         tableNumber: table.number,
         sessionId: table.sessionId,
+        qrExpiresAt: table.qrExpiresAt,
         menuVersion: tableMenuVersion(table, catalog),
       });
     }),
@@ -101,15 +106,28 @@ export function mountPublicOrdering(app, db) {
     orderingHandler(async (req, res) => {
       if (!uuid.safeParse(req.params.token).success) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
       const { location, ...order } = req.body || {};
-      const denied = locationError(location);
-      if (denied) return res.status(422).json({ message: denied });
+      // Ignore location sent by older clients; GPS is no longer required.
       const data = parseBody(orderInput, order, res);
       if (data) res.json(await submitOrder(db, req.params.token, data));
     }),
   );
 }
 
-export function mountPosOrdering(router, db) {
+export function mountPosOrdering(router, db, config = { origin: 'http://localhost:5173' }) {
+  router.post(
+    '/tables/:id/qr',
+    orderingHandler(async (req, res) => {
+      if (!uuid.safeParse(req.params.id).success)
+        return res.status(400).json({ message: 'รหัสโต๊ะไม่ถูกต้อง' });
+      const data = parseBody(z.object({ sessionId: uuid }).strict(), req.body, res);
+      if (!data) return;
+      const table = await db.diningTable.findUnique({ where: { id: req.params.id } });
+      requireActiveQr(table);
+      if (table.sessionId !== data.sessionId)
+        throw orderingError('รอบโต๊ะเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่', 403);
+      res.json(presentTableQr(table, config.origin));
+    }),
+  );
   router.get(
     '/tables',
     orderingHandler(async (req, res) => {
@@ -123,6 +141,8 @@ export function mountPosOrdering(router, db) {
             orderingEnabled: true,
             zones: true,
             openedAt: true,
+            qrDurationHours: true,
+            qrExpiresAt: true,
           },
         }),
       );
@@ -144,13 +164,26 @@ export function mountPosOrdering(router, db) {
     orderingHandler(async (req, res) => {
       const data = parseBody(
         z
-          .object({ sessionId: uuid, zones: z.array(z.string().trim().min(1).max(80)).max(100) })
+          .object({
+            sessionId: uuid,
+            zones: z.array(z.string().trim().min(1).max(80)).max(100),
+            qrHours: qrHoursInput.optional(),
+          })
           .strict(),
         req.body,
         res,
       );
       if (data)
-        res.json(await activateTable(db, req.params.id, data.sessionId, data.zones, req.posActor));
+        res.json(
+          await activateTable(
+            db,
+            req.params.id,
+            data.sessionId,
+            data.zones,
+            req.posActor,
+            data.qrHours,
+          ),
+        );
     }),
   );
   router.post(
@@ -219,11 +252,35 @@ export function mountOrderingAdmin(app, db, config) {
   const tables = () => db.diningTable.findMany({ orderBy: { number: 'asc' } });
   const present = (table) => ({
     ...table,
-    url: `${config.origin.replace(/\/$/, '')}/order/${table.qrToken}`,
+    url: presentTableQr(table, config.origin).url,
   });
   app.get(
     '/api/admin/dining-tables',
     orderingHandler(async (req, res) => res.json((await tables()).map(present))),
+  );
+  app.put(
+    '/api/admin/dining-tables/:id/settings',
+    orderingHandler(async (req, res) => {
+      if (!uuid.safeParse(req.params.id).success)
+        return res.status(400).json({ message: 'รหัสโต๊ะไม่ถูกต้อง' });
+      const data = parseBody(z.object({ qrHours: qrHoursInput }).strict(), req.body, res);
+      if (!data) return;
+      const table = await db.$transaction(async (tx) => {
+        const table = await tx.diningTable.update({
+          where: { id: req.params.id },
+          data: { qrDurationHours: data.qrHours },
+        });
+        await tx.auditLog.create({
+          data: {
+            actor: req.admin.id,
+            action: 'TABLE_QR_DURATION_CHANGED',
+            details: { tableId: table.id, qrHours: data.qrHours },
+          },
+        });
+        return table;
+      });
+      res.json(present(table));
+    }),
   );
   app.post(
     '/api/admin/dining-tables',
@@ -240,7 +297,7 @@ export function mountOrderingAdmin(app, db, config) {
         res,
       );
       if (!data) return;
-      // Upsert never updates an existing QR: adding tables is safe to repeat.
+      // Adding table numbers never opens a round or issues a QR.
       await db.$transaction(async (tx) => {
         for (let number = data.from; number <= data.to; number++)
           await tx.diningTable.upsert({ where: { number }, create: { number }, update: {} });

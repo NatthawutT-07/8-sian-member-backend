@@ -5,8 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { PrismaClient } from '@prisma/client';
 import express from 'express';
 import { mountPublicOrdering } from '../src/ordering/routes.js';
-import { restaurantLocation } from '../src/ordering/location.js';
-import { closeTable } from '../src/ordering/service.js';
+import { closeTable, openPaidTable, activateTable } from '../src/ordering/service.js';
 
 const url = new URL(process.env.DATABASE_URL);
 assert.ok(
@@ -60,6 +59,7 @@ try {
     qrToken: randomUUID(),
     sessionId: randomUUID(),
     orderingEnabled: true,
+    qrExpiresAt: new Date(Date.now() + 7200000),
     zones: ['standard'],
   }));
   await db.diningTable.createMany({ data: tables });
@@ -124,8 +124,8 @@ try {
       body: JSON.stringify({
         ...data,
         location: {
-          latitude: restaurantLocation.latitude,
-          longitude: restaurantLocation.longitude,
+          latitude: 13.944698337170372,
+          longitude: 100.54483398858625,
           accuracy: 10,
           timestamp: Date.now(),
         },
@@ -185,8 +185,36 @@ try {
   assert.equal(unavailable.status, 400);
   assert.equal(await db.tableOrder.count(), before);
   await closeTable(db, tables[4].id, tables[4].sessionId, 'capacity-test');
-  assert.equal((await fetch(`${origin}/api/ordering/${tables[4].qrToken}`)).status, 403);
+  assert.equal((await fetch(`${origin}/api/ordering/${tables[4].qrToken}`)).status, 404);
   assert.equal((await send(4, orders[4])).status, 403);
+  await db.$transaction((tx) => openPaidTable(tx, tables[4].id, 'capacity-test'));
+  await activateTable(
+    db,
+    tables[4].id,
+    (await db.diningTable.findUnique({ where: { id: tables[4].id } })).sessionId,
+    ['standard'],
+    'capacity-test',
+    1,
+  );
+  const reopened = await db.diningTable.findUnique({ where: { id: tables[4].id } });
+  assert.notEqual(reopened.qrToken, tables[4].qrToken);
+  assert.ok(Math.abs(+reopened.qrExpiresAt - Date.now() - 3600000) < 3000);
+  assert.equal((await fetch(`${origin}/api/ordering/${tables[4].qrToken}`)).status, 404);
+  const freshOrder = {
+    key: randomUUID(),
+    sessionId: reopened.sessionId,
+    items: [{ menuItemId: menu[0].id, quantity: 1 }],
+  };
+  const sendWithoutGps = () =>
+    fetch(`${origin}/api/ordering/${reopened.qrToken}/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(freshOrder),
+    });
+  assert.equal((await sendWithoutGps()).status, 200);
+  await db.diningTable.update({ where: { id: reopened.id }, data: { qrExpiresAt: new Date(0) } });
+  assert.equal((await fetch(`${origin}/api/ordering/${reopened.qrToken}`)).status, 403);
+  assert.equal((await sendWithoutGps()).status, 403);
   console.log(
     'PASS: local PostgreSQL, 100 concurrent readers/orders, shared catalog, two API instances, idempotent retries, persistent spam prevention, live menu/closed-table validation',
   );

@@ -151,7 +151,9 @@ model PosSale {
 model DiningTable {
   id String @id @default(uuid())
   number Int @unique
-  qrToken String @unique @default(uuid())
+  qrToken String? @unique
+  qrDurationHours Int @default(2)
+  qrExpiresAt DateTime?
   sessionId String? @unique
   orderingEnabled Boolean @default(false)
   zones Json @default("[]")

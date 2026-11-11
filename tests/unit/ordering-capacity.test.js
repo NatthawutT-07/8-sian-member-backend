@@ -6,9 +6,9 @@ import { menuImage } from '../../src/ordering/image-cache.js';
 import { checkOrderThrottle } from '../../src/ordering/order-throttle.js';
 import { submitOrder, orderHash } from '../../src/ordering/service.js';
 import { mountPublicOrdering } from '../../src/ordering/routes.js';
-import { restaurantLocation } from '../../src/ordering/location.js';
 
 test('100 simultaneous menu readers share one catalog; table rights remain live and status is small', async () => {
+  const expiry = new Date(Date.now() + 7200000);
   let menuReads = 0,
     categoryReads = 0,
     tableReads = 0,
@@ -33,7 +33,13 @@ test('100 simultaneous menu readers share one catalog; table rights remain live 
     diningTable: {
       findUnique: async () => {
         tableReads++;
-        return { number: 1, sessionId: 'session', orderingEnabled: open, zones: ['standard'] };
+        return {
+          number: 1,
+          sessionId: 'session',
+          orderingEnabled: open,
+          qrExpiresAt: expiry,
+          zones: ['standard'],
+        };
       },
     },
   };
@@ -144,7 +150,13 @@ test('acknowledging an already-saved idempotency key never consumes a new thrott
     tableOrder: {
       findUnique: async () => ({ requestHash: orderHash(data, token), status: 'NEW' }),
     },
-    diningTable: { findUnique: () => assert.fail('retry must not check or update throttle') },
+    diningTable: {
+      findUnique: async () => ({
+        sessionId: data.sessionId,
+        orderingEnabled: true,
+        qrExpiresAt: new Date(Date.now() + 7200000),
+      }),
+    },
   };
   assert.deepEqual(await submitOrder({ $transaction: (fn) => fn(tx) }, token, data), { ok: true });
 });
@@ -156,7 +168,12 @@ test('submission returns Retry-After and creates nothing when a table sends too 
   const tx = {
     tableOrder: { findUnique: async () => null, create: () => assert.fail('must not create') },
     diningTable: {
-      findUnique: async () => ({ sessionId, orderingEnabled: true, lastOrderAt: new Date() }),
+      findUnique: async () => ({
+        sessionId,
+        orderingEnabled: true,
+        qrExpiresAt: new Date(Date.now() + 7200000),
+        lastOrderAt: new Date(),
+      }),
       updateMany: () => assert.fail('must not update'),
     },
   };
@@ -178,8 +195,8 @@ test('submission returns Retry-After and creates nothing when a table sends too 
         sessionId,
         items: [{ menuItemId: randomUUID(), quantity: 1 }],
         location: {
-          latitude: restaurantLocation.latitude,
-          longitude: restaurantLocation.longitude,
+          latitude: 13.944698337170372,
+          longitude: 100.54483398858625,
           accuracy: 10,
           timestamp: Date.now(),
         },

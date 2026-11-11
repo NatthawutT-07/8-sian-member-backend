@@ -71,6 +71,7 @@ test('public menu returns configured order filtered to visible menu categories o
       number: 3,
       sessionId: 'session',
       orderingEnabled: true,
+      qrExpiresAt: new Date(Date.now() + 7200000),
       zones: ['standard'],
     }),
   };

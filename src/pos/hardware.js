@@ -12,6 +12,7 @@ const eventInput = z
       'CONNECT',
       'TEST_PRINT',
       'PRINT_RECEIPT',
+      'PRINT_TABLE_QR',
       'PRINT_BARCODE',
       'OPEN_DRAWER',
       'PRINT_SHIFT',

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { digest } from '../shared/security.js';
 import { checkOrderThrottle } from './order-throttle.js';
+import { requireActiveQr, qrHoursInput } from './qr-session.js';
 
 export const orderInput = z
   .object({
@@ -41,6 +42,8 @@ export async function openPaidTable(tx, id, actor) {
     where: { id, sessionId: null, version: table.version },
     data: {
       sessionId,
+      qrToken: randomUUID(),
+      qrExpiresAt: null,
       orderingEnabled: false,
       zones: [],
       openedAt: new Date(),
@@ -63,6 +66,8 @@ export async function closeTable(db, id, sessionId, actor) {
         where: { id, sessionId },
         data: {
           sessionId: null,
+          qrToken: null,
+          qrExpiresAt: null,
           orderingEnabled: false,
           zones: [],
           closedAt: new Date(),
@@ -90,7 +95,7 @@ export async function closeTable(db, id, sessionId, actor) {
   );
 }
 
-export async function activateTable(db, id, sessionId, zones, actor) {
+export async function activateTable(db, id, sessionId, zones, actor, qrHours) {
   const selected = [...new Set(zones)].sort();
   return db.$transaction(
     async (tx) => {
@@ -98,6 +103,7 @@ export async function activateTable(db, id, sessionId, zones, actor) {
       if (!table || table.sessionId !== sessionId)
         throw orderingError('รอบโต๊ะเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่');
       if (table.orderingEnabled) {
+        requireActiveQr(table);
         if (JSON.stringify([...table.zones].sort()) === JSON.stringify(selected))
           return { ok: true };
         throw orderingError('โต๊ะเปิดสิทธิ์ไปแล้ว กรุณาโหลดสถานะล่าสุด');
@@ -110,7 +116,14 @@ export async function activateTable(db, id, sessionId, zones, actor) {
         throw orderingError('บางโซนไม่มีในเมนูแล้ว กรุณาโหลดข้อมูลใหม่', 400);
       const locked = await tx.diningTable.updateMany({
         where: { id, sessionId, orderingEnabled: false, version: table.version },
-        data: { orderingEnabled: true, zones: selected, version: { increment: 1 } },
+        data: {
+          orderingEnabled: true,
+          zones: selected,
+          version: { increment: 1 },
+          qrToken: table.qrToken || randomUUID(),
+          qrDurationHours: qrHoursInput.parse(qrHours ?? table.qrDurationHours ?? 2),
+          qrExpiresAt: new Date(Date.now() + (qrHours ?? table.qrDurationHours ?? 2) * 3600000),
+        },
       });
       if (locked.count !== 1) throw orderingError('สถานะโต๊ะเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่');
       await tx.auditLog.create({
@@ -135,11 +148,12 @@ async function saveOrderOnce(db, token, data) {
         if (saved.requestHash !== hash) throw orderingError('รหัสรายการนี้ถูกใช้แล้ว');
         if (saved.status === 'CANCELLED')
           throw orderingError('โต๊ะปิดแล้ว รายการค้างนี้ถูกยกเลิก กรุณาติดต่อพนักงาน', 403);
-        return { ok: true }; // Never expose order history through retries.
       }
       const table = await tx.diningTable.findUnique({ where: { qrToken: token } });
+      requireActiveQr(table);
       if (!table?.sessionId || !table.orderingEnabled || table.sessionId !== data.sessionId)
         throw orderingError('โต๊ะปิดแล้วหรือเปลี่ยนรอบลูกค้า กรุณาติดต่อพนักงาน', 403);
+      if (saved) return { ok: true }; // Acknowledgements also require the live, unexpired QR.
       const throttle = checkOrderThrottle(table, new Date());
       // Serialize orders with closing/reopening the table, including requests already in flight.
       const locked = await tx.diningTable.updateMany({
@@ -155,6 +169,7 @@ async function saveOrderOnce(db, token, data) {
         throw Object.assign(orderingError('สถานะโต๊ะกำลังเปลี่ยน กรุณาลองรายการเดิมอีกครั้ง'), {
           code: 'ORDER_RACE',
         });
+      requireActiveQr(table);
       const menu = await tx.orderingMenuItem.findMany({
         where: { id: { in: data.items.map((item) => item.menuItemId) }, active: true },
         select: { id: true, zone: true, category: true, name: true },
@@ -172,6 +187,7 @@ async function saveOrderOnce(db, token, data) {
           quantity: item.quantity,
         };
       });
+      requireActiveQr(table);
       await tx.tableOrder.create({
         data: {
           key: data.key,
