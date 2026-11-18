@@ -92,3 +92,13 @@ test('automatic close report print claims are unique and limited to the closing 
   assert.equal(results.filter((row) => row.claimed).length, 1);
   assert.deepEqual(await claimShiftOutput(db, 's1', 'u'), { claimed: false });
 });
+
+test('mixed bill splits net cash and transfer without counting change as revenue', () => {
+  const { summary } = summarizeShiftSales([{ method: 'MIXED', totalSatang: 100000, transferSatang: 60000, receivedSatang: 110000, changeSatang: 10000, items: [] }]);
+  assert.equal(summary.billCount, 1);
+  assert.equal(summary.cashSatang, 40000);
+  assert.equal(summary.transferSatang, 60000);
+  assert.equal(summary.cashReceivedSatang, 50000);
+  assert.equal(summary.cashChangeSatang, 10000);
+  assert.equal(summary.cashSatang + summary.transferSatang, summary.totalSatang);
+});

@@ -135,6 +135,7 @@ model PosSale {
   coupon Coupon? @relation(fields: [couponId], references: [id], onDelete: Restrict)
   couponTitle String?
   method String
+  transferSatang Int @default(0)
   receivedSatang Int
   changeSatang Int
   memberId String?

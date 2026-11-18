@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayRange, businessDate, openInput, closeInput, closeShift } from '../../src/pos/shifts.js';
+import { dayRange, businessDate, openInput, closeInput, closeShift, salesSummary } from '../../src/pos/shifts.js';
+
+test('daily and closing totals split mixed sales without duplicating revenue', async () => {
+  const db = { posSale: { groupBy: async (query) => {
+    assert.equal(query._sum.transferSatang, true);
+    return [
+      { method: 'CASH', _sum: { totalSatang: 20000, transferSatang: 0 }, _count: { _all: 1 } },
+      { method: 'TRANSFER', _sum: { totalSatang: 30000, transferSatang: 0 }, _count: { _all: 1 } },
+      { method: 'MIXED', _sum: { totalSatang: 100000, transferSatang: 60000 }, _count: { _all: 1 } },
+    ];
+  } } };
+  assert.deepEqual(await salesSummary(db, {}), { billCount: 3, cashSatang: 60000, transferSatang: 90000, totalSatang: 150000 });
+});
 test('daily reports use Bangkok midnight and exclude the next day', () => {
   const range = dayRange('2026-10-29');
   assert.equal(range.gte.toISOString(), '2026-10-28T17:00:00.000Z');

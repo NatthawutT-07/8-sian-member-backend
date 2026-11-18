@@ -41,7 +41,7 @@ export function mountAdminPosReports(app, db) {
           .trim()
           .slice(0, 100);
       const method = String(req.query.method || '');
-      if (method && !['CASH', 'TRANSFER'].includes(method))
+      if (method && !['CASH', 'TRANSFER', 'MIXED'].includes(method))
         return res.status(400).json({ message: 'ประเภทการชำระไม่ถูกต้อง' });
       const where = {
         createdAt: range.dates,

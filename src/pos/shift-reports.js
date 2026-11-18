@@ -16,10 +16,11 @@ export function summarizeShiftSales(sales) {
     summary.totalSatang += sale.totalSatang;
     summary.discountSatang += sale.discountSatang || 0;
     summary.subtotalSatang += sale.subtotalSatang ?? sale.totalSatang + (sale.discountSatang || 0);
-    if (sale.method === 'CASH') {
+    if (sale.method === 'CASH' || sale.method === 'MIXED') {
       summary.cashBillCount++;
-      summary.cashSatang += sale.totalSatang;
-      summary.cashReceivedSatang += sale.receivedSatang;
+      summary.cashSatang += sale.totalSatang - (sale.transferSatang || 0);
+      summary.cashReceivedSatang += sale.receivedSatang - (sale.transferSatang || 0);
+      if (sale.method === 'MIXED') { summary.transferBillCount++; summary.transferSatang += sale.transferSatang; }
       summary.cashChangeSatang += sale.changeSatang;
     } else if (sale.method === 'TRANSFER') {
       summary.transferBillCount++;
@@ -59,6 +60,7 @@ export async function shiftReport(db, id) {
       subtotalSatang: true,
       discountSatang: true,
       method: true,
+      transferSatang: true,
       receivedSatang: true,
       changeSatang: true,
     },

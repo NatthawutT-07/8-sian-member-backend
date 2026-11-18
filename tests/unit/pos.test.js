@@ -89,3 +89,31 @@ test('underpayment and unbalanced transfers never create a sale', async () => {
   await assert.rejects(completeSale(db, { ...input, receivedSatang: 1 }, 'owner'));
   await assert.rejects(completeSale(db, { ...input, method: 'TRANSFER' }, 'owner'));
 });
+
+test('mixed checkout rejects missing, excessive transfer and combined underpayment', async () => {
+  const tx = {
+    posShift: { findUnique: async () => ({ id: input.shiftId }), updateMany: async () => ({ count: 1 }) },
+    posProduct: { findMany: async () => [{ id, active: true, priceSatang: 1250 }] },
+    posSale: { create: () => assert.fail('must not create') },
+  };
+  const db = { posSale: { findUnique: async () => null }, $transaction: async (fn) => fn(tx) };
+  for (const transferSatang of [undefined, 0, -1, 3750, 4000])
+    await assert.rejects(completeSale(db, { ...input, method: 'MIXED', transferSatang }, 'owner'));
+  await assert.rejects(completeSale(db, { ...input, method: 'MIXED', transferSatang: 2000, receivedSatang: 3000 }, 'owner'));
+  assert.equal(checkoutInput.safeParse({ ...input, method: 'MIXED', transferSatang: 2000 }).success, true);
+});
+
+test('mixed checkout persists combined tender, transfer portion and correct change', async () => {
+  const tx = {
+    posShift: { findUnique: async () => ({ id: input.shiftId }), updateMany: async () => ({ count: 1 }) },
+    posProduct: { findMany: async () => [{ id, active: true, priceSatang: 1250 }] },
+    posReceiptCounter: { upsert: async () => ({ lastNumber: 1 }) },
+    posSale: { create: async ({ data }) => data },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { posSale: { findUnique: async () => null }, $transaction: async (fn) => fn(tx) };
+  const sale = await completeSale(db, { ...input, method: 'MIXED', transferSatang: 2000, receivedSatang: 4000 }, 'owner');
+  assert.equal(sale.transferSatang, 2000);
+  assert.equal(sale.receivedSatang - sale.transferSatang, 2000);
+  assert.equal(sale.changeSatang, 250);
+});

@@ -23,7 +23,7 @@ export async function salesSummary(db, where) {
   const groups = await db.posSale.groupBy({
     by: ['method'],
     where,
-    _sum: { totalSatang: true },
+    _sum: { totalSatang: true, transferSatang: true },
     _count: { _all: true },
   });
   const summary = { billCount: 0, cashSatang: 0, transferSatang: 0, totalSatang: 0 };
@@ -33,6 +33,7 @@ export async function salesSummary(db, where) {
     summary.totalSatang += value;
     if (row.method === 'CASH') summary.cashSatang += value;
     if (row.method === 'TRANSFER') summary.transferSatang += value;
+    if (row.method === 'MIXED') { summary.cashSatang += value - row._sum.transferSatang; summary.transferSatang += row._sum.transferSatang; }
   }
   return summary;
 }

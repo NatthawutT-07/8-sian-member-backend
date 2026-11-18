@@ -43,7 +43,7 @@ export async function claimSaleOutput(db, id, actor, now = new Date()) {
         details: { saleId: sale.id, method: sale.method },
       },
     });
-    return { claimed: true, cash: sale.method === 'CASH' };
+    return { claimed: true, cash: (sale.method === 'CASH' || sale.method === 'MIXED') };
   } catch (error) {
     if (error.code === 'P2002') return { claimed: false };
     throw error;

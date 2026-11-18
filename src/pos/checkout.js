@@ -51,6 +51,7 @@ export async function completeSale(db, data, actor) {
         );
       if (
         data.receivedSatang < totalSatang ||
+        (data.method === 'MIXED' ? !Number.isSafeInteger(data.transferSatang) || data.transferSatang <= 0 || data.transferSatang >= totalSatang || data.receivedSatang <= data.transferSatang : !!data.transferSatang) ||
         (data.method === 'TRANSFER' && data.receivedSatang !== totalSatang)
       )
         throw new Error('ยอดรับชำระไม่ถูกต้อง');
@@ -74,6 +75,7 @@ export async function completeSale(db, data, actor) {
           couponId: coupon?.couponId,
           couponTitle: coupon?.couponTitle,
           method: data.method,
+          transferSatang: data.transferSatang || 0,
           receivedSatang: data.receivedSatang,
           changeSatang: data.receivedSatang - totalSatang,
           memberId: member?.id,
