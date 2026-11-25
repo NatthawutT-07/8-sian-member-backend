@@ -50,6 +50,7 @@ export function tableMenuVersion(table, catalog) {
       catalog: catalog.version,
       session: table.sessionId,
       expiresAt: table.qrExpiresAt,
+      unlimited: table.qrUnlimited === true,
       zones: [...table.zones].sort(),
     }),
   );
@@ -63,6 +64,7 @@ export function tableMenu(table, catalog) {
     tableNumber: table.number,
     sessionId: table.sessionId,
     qrExpiresAt: table.qrExpiresAt,
+    qrUnlimited: table.qrUnlimited === true && table.qrExpiresAt == null,
     menuVersion: tableMenuVersion(table, catalog),
     categories: catalog.categories.filter((name) => categories.has(name)),
     menu,

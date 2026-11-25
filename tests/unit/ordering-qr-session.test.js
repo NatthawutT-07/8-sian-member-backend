@@ -6,8 +6,8 @@ import { requireActiveQr, qrHoursInput, presentTableQr } from '../../src/orderin
 import { mountPublicOrdering, mountOrderingAdmin } from '../../src/ordering/routes.js';
 
 test('QR lifetime validates whole hours and expires at the exact deadline', () => {
-  for (const hours of [1, 2, 168]) assert.equal(qrHoursInput.safeParse(hours).success, true);
-  for (const hours of [0, -1, 1.5, 169, '2'])
+  for (const hours of [0, 1, 2, 168]) assert.equal(qrHoursInput.safeParse(hours).success, true);
+  for (const hours of [-1, 1.5, 169, '2'])
     assert.equal(qrHoursInput.safeParse(hours).success, false);
   const now = new Date();
   const table = { sessionId: randomUUID(), orderingEnabled: true, qrExpiresAt: new Date(+now + 1) };
@@ -20,6 +20,35 @@ test('QR lifetime validates whole hours and expires at the exact deadline', () =
     orderingStatus: 403,
   });
   assert.equal(presentTableQr({ ...table, qrToken: null }, 'https://example.com').url, null);
+});
+
+test('unlimited QR remains valid until the paid round closes; duration defaults cannot revoke it', async () => {
+  const row = { id: randomUUID(), number: 99, sessionId: null, version: 0, qrDurationHours: 2, qrUnlimited: false, zones: [] };
+  const tx = {
+    diningTable: {
+      findUnique: async () => ({ ...row }),
+      updateMany: async ({ data }) => { Object.assign(row, data); return { count: 1 }; },
+    },
+    orderingMenuItem: { findMany: async () => [{ zone: 'main' }] },
+    tableOrder: { updateMany: async () => ({ count: 0 }) },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (fn) => fn(tx) };
+  await openPaidTable(tx, row.id, 'cashier', { zones: ['main'], qrHours: 0 });
+  assert.equal(row.qrUnlimited, true);
+  assert.equal(row.qrExpiresAt, null);
+  assert.equal(requireActiveQr(row, new Date('2099-01-01')), row);
+  assert.ok(presentTableQr(row, 'https://example.com').url);
+  row.qrDurationHours = 5;
+  assert.equal(requireActiveQr(row), row, 'changing next-round defaults cannot revoke an unlimited active round');
+  await closeTable(db, row.id, row.sessionId, 'cashier');
+  assert.equal(row.qrUnlimited, false);
+  assert.equal(presentTableQr(row, 'https://example.com').url, null);
+  assert.throws(() => requireActiveQr(row));
+  await openPaidTable(tx, row.id, 'cashier');
+  await activateTable(db, row.id, row.sessionId, ['main'], 'cashier', 0);
+  assert.equal(row.qrUnlimited, true);
+  assert.equal(row.qrExpiresAt, null);
 });
 
 test('each paid round gets a fresh token; activation starts two hours, retry cannot extend, close revokes it', async () => {

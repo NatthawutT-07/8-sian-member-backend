@@ -155,6 +155,7 @@ model DiningTable {
   qrToken String? @unique
   qrDurationHours Int @default(2)
   qrExpiresAt DateTime?
+  qrUnlimited Boolean @default(false)
   sessionId String? @unique
   orderingEnabled Boolean @default(false)
   zones Json @default("[]")

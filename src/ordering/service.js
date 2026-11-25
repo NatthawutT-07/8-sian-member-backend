@@ -54,7 +54,8 @@ export async function openPaidTable(tx, id, actor, ordering) {
     data: {
       sessionId,
       qrToken: randomUUID(),
-      qrExpiresAt: ordering ? new Date(Date.now() + qrHours * 3600000) : null,
+      qrExpiresAt: ordering && qrHours !== 0 ? new Date(Date.now() + qrHours * 3600000) : null,
+      qrUnlimited: !!ordering && qrHours === 0,
       ...(ordering ? { qrDurationHours: qrHours } : {}),
       orderingEnabled: !!ordering,
       zones,
@@ -80,6 +81,7 @@ export async function closeTable(db, id, sessionId, actor) {
           sessionId: null,
           qrToken: null,
           qrExpiresAt: null,
+          qrUnlimited: false,
           orderingEnabled: false,
           zones: [],
           closedAt: new Date(),
@@ -126,6 +128,7 @@ export async function activateTable(db, id, sessionId, zones, actor, qrHours) {
       });
       if (selected.some((zone) => !available.some((item) => item.zone === zone)))
         throw orderingError('บางโซนไม่มีในเมนูแล้ว กรุณาโหลดข้อมูลใหม่', 400);
+      const duration = qrHoursInput.parse(qrHours ?? table.qrDurationHours ?? 2);
       const locked = await tx.diningTable.updateMany({
         where: { id, sessionId, orderingEnabled: false, version: table.version },
         data: {
@@ -133,8 +136,9 @@ export async function activateTable(db, id, sessionId, zones, actor, qrHours) {
           zones: selected,
           version: { increment: 1 },
           qrToken: table.qrToken || randomUUID(),
-          qrDurationHours: qrHoursInput.parse(qrHours ?? table.qrDurationHours ?? 2),
-          qrExpiresAt: new Date(Date.now() + (qrHours ?? table.qrDurationHours ?? 2) * 3600000),
+          qrDurationHours: duration,
+          qrUnlimited: duration === 0,
+          qrExpiresAt: duration === 0 ? null : new Date(Date.now() + duration * 3600000),
         },
       });
       if (locked.count !== 1) throw orderingError('สถานะโต๊ะเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่');

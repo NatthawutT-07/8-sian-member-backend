@@ -1,0 +1,1 @@
+ALTER TABLE "DiningTable" ADD COLUMN "qrUnlimited" BOOLEAN NOT NULL DEFAULT false;

@@ -26,7 +26,8 @@ test('checkout accepts table zones and bounded QR hours; retry cannot change gra
   };
   assert.equal(checkoutInput.safeParse(data).success, true);
   assert.equal(checkoutInput.safeParse({ ...data, tableId: undefined }).success, false);
-  for (const qrHours of [0, 169, 1.5])
+  assert.equal(checkoutInput.safeParse({ ...data, ordering: { zones: [], qrHours: 0 } }).success, true);
+  for (const qrHours of [-1, 169, 1.5])
     assert.equal(
       checkoutInput.safeParse({ ...data, ordering: { zones: [], qrHours } }).success,
       false,

@@ -67,6 +67,8 @@ export function mountPublicOrdering(app, db) {
         orderingEnabled: true,
         zones: true,
         qrExpiresAt: true,
+        qrDurationHours: true,
+        qrUnlimited: true,
       },
     });
     if (!table) throw orderingError('ไม่พบ QR โต๊ะนี้', 404);
@@ -88,6 +90,7 @@ export function mountPublicOrdering(app, db) {
         tableNumber: table.number,
         sessionId: table.sessionId,
         qrExpiresAt: table.qrExpiresAt,
+        qrUnlimited: table.qrUnlimited === true && table.qrExpiresAt == null,
         menuVersion: tableMenuVersion(table, catalog),
       });
     }),
@@ -142,6 +145,7 @@ export function mountPosOrdering(router, db, config = { origin: 'http://localhos
             zones: true,
             openedAt: true,
             qrDurationHours: true,
+            qrUnlimited: true,
             qrExpiresAt: true,
           },
         }),

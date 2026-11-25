@@ -35,7 +35,7 @@ export const checkoutInput = z
     ordering: z
       .object({
         zones: z.array(z.string().trim().min(1).max(80)).max(100),
-        qrHours: z.number().int().min(1).max(168),
+        qrHours: z.number().int().min(0).max(168),
       })
       .strict()
       .optional(),
