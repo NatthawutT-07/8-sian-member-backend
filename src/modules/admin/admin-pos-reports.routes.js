@@ -1,6 +1,7 @@
 import { dayRange, businessDate, salesSummary } from '../../pos/shifts.js';
 import { shiftReport } from '../../pos/shift-reports.js';
 import { withCashierNames } from '../../pos/sale-receipts.js';
+import { summarizeDashboardSales } from '../../pos/sales-dashboard.js';
 
 export function reportRange(query) {
   const from = String(query.from || businessDate()),
@@ -26,6 +27,17 @@ export function mountAdminPosReports(app, db) {
       next(error);
     }
   };
+  app.get('/api/admin/pos/dashboard', route(async (_req, res, range) => {
+    const sales = await db.posSale.findMany({
+      where: { createdAt: range.dates },
+      select: {
+        createdAt: true, items: true, method: true, totalSatang: true,
+        subtotalSatang: true, discountSatang: true, transferSatang: true,
+        receivedSatang: true, changeSatang: true,
+      },
+    });
+    res.json({ from: range.from, to: range.to, timezone: 'Asia/Bangkok', ...summarizeDashboardSales(sales, range.from, range.to) });
+  }));
   app.get(
     '/api/admin/pos/reports',
     route(async (_req, res, range) => {

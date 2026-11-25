@@ -4,6 +4,7 @@ import { priceItems } from './pricing.js';
 import { selectedMember } from './member-selection.js';
 import { couponForCheckout } from './coupon-discounts.js';
 import { openPaidTable } from '../ordering/service.js';
+import { cancelledPaymentId } from './payment-recovery.js';
 export { productInput, checkoutInput } from './validation.js';
 export { priceItems } from './pricing.js';
 export const requestHash = (data) =>
@@ -56,6 +57,8 @@ export async function completeSale(db, data, actor) {
       )
         throw new Error('ยอดรับชำระไม่ถูกต้อง');
       const createdAt = new Date();
+      if (await tx.auditLog.findUnique({ where: { id: cancelledPaymentId(data.key) } }))
+        throw new Error('บิลนี้ถูกยกเลิกจากรายการรอตรวจแล้ว กรุณาเริ่มบิลใหม่');
       const receiptNumber = await nextReceiptNumber(tx, createdAt);
       const table = data.tableId
         ? await openPaidTable(tx, data.tableId, actor, data.ordering)

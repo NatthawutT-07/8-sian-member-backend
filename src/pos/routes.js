@@ -14,6 +14,7 @@ import { mountPosOrdering } from '../ordering/routes.js';
 import { orderingHandler } from '../ordering/routes.js';
 import { mountKitchen } from '../ordering/kitchen.js';
 import { productOrderBy } from './product-order.js';
+import { paymentRecoveryInput, recoverPayment } from './payment-recovery.js';
 import {
   openInput,
   closeInput,
@@ -50,7 +51,7 @@ export async function mountPos(app, db, config) {
       if (!valid || !user?.active || !['USER', 'CHEF'].includes(user?.role))
         return res.status(401).json({ message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
       const value = sessionToken(),
-        expiresAt = new Date(Date.now() + 8 * 3600000);
+        expiresAt = new Date(Date.now() + 24 * 3600000);
       await db.posSession.create({
         data: { tokenHash: digest(value), userId: user.id, expiresAt },
       });
@@ -59,6 +60,7 @@ export async function mountPos(app, db, config) {
         username: user.username,
         displayName: user.displayName,
         role: user.role,
+        expiresAt,
       });
     },
   );
@@ -81,6 +83,7 @@ export async function mountPos(app, db, config) {
     req.posUsername = session.user.username;
     req.posDisplayName = session.user.displayName;
     req.posRole = session.user.role;
+    req.posExpiresAt = session.expiresAt;
     next();
   });
   router.get('/me', (req, res) =>
@@ -89,6 +92,7 @@ export async function mountPos(app, db, config) {
       username: req.posUsername,
       displayName: req.posDisplayName,
       role: req.posRole,
+      expiresAt: req.posExpiresAt,
     }),
   );
   router.use((req, res, next) => {
@@ -244,6 +248,20 @@ export async function mountPos(app, db, config) {
           .json({ message: 'รายการกำลังประมวลผล กรุณาลองยืนยันบิลเดิมอีกครั้ง' });
       if (!error.code && error.constructor === Error)
         return res.status(400).json({ message: error.message });
+      next(error);
+    }
+  });
+  router.post('/checkout/recover', async (req, res, next) => {
+    const data = parseBody(paymentRecoveryInput, req.body, res);
+    if (!data) return;
+    try {
+      const result = await recoverPayment(db, data, req.posActor);
+      if (result.sale) result.sale = (await withCashierNames(db, [result.sale]))[0];
+      res.json(result);
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ message: error.message });
+      if (['P2002', 'P2034'].includes(error.code))
+        return res.status(409).json({ message: 'บิลเดิมกำลังประมวลผล กรุณาตรวจผลอีกครั้ง ห้ามรับเงินซ้ำ' });
       next(error);
     }
   });

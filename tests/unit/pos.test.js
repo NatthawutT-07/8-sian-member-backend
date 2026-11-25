@@ -109,7 +109,7 @@ test('mixed checkout persists combined tender, transfer portion and correct chan
     posProduct: { findMany: async () => [{ id, active: true, priceSatang: 1250 }] },
     posReceiptCounter: { upsert: async () => ({ lastNumber: 1 }) },
     posSale: { create: async ({ data }) => data },
-    auditLog: { create: async () => ({}) },
+    auditLog: { findUnique: async () => null, create: async () => ({}) },
   };
   const db = { posSale: { findUnique: async () => null }, $transaction: async (fn) => fn(tx) };
   const sale = await completeSale(db, { ...input, method: 'MIXED', transferSatang: 2000, receivedSatang: 4000 }, 'owner');

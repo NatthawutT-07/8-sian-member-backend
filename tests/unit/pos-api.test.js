@@ -134,7 +134,7 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
         qrActive && where.loyaltyQrHash === digest(`8SM-${'a'.repeat(64)}`) ? member : null,
     },
     diningVisit: { create: async ({ data }) => visits.push(data) },
-    auditLog: { create: async ({ data }) => audits.push(data) },
+    auditLog: { findUnique: async ({ where }) => audits.find((row) => row.id === where.id) || null, create: async ({ data }) => audits.push(data) },
     $transaction: async (fn) => fn(db),
   };
   const app = await createApp({
@@ -190,7 +190,16 @@ test('POS session, scan, paid sale and retry keep member visits idempotent', asy
     assert.equal(login.status, 200);
     cookie = login.headers.get('set-cookie').split(';')[0];
     assert.match(cookie, /^pos_session=/);
-    assert.equal((await login.json()).role, 'USER');
+    const loginData = await login.json();
+    assert.equal(loginData.role, 'USER');
+    assert.ok(new Date(loginData.expiresAt).getTime() - Date.now() > 23.9 * 3600000);
+    assert.ok(new Date(loginData.expiresAt).getTime() - Date.now() <= 24 * 3600000);
+    const activeSession = [...sessions.values()][0];
+    const originalExpiry = activeSession.expiresAt;
+    activeSession.expiresAt = new Date(Date.now() - 1);
+    assert.equal((await call('me')).status, 401);
+    activeSession.expiresAt = originalExpiry;
+    assert.equal((await (await call('me')).json()).expiresAt, loginData.expiresAt);
     assert.equal(
       (await fetch(`${base}/api/admin/me`, { headers: { Cookie: cookie } })).status,
       401,
