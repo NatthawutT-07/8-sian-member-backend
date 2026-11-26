@@ -7,6 +7,19 @@ const cancelInput = z.object({
   menuItemId: z.string().uuid().optional(),
 }).strict();
 
+export async function withKitchenImages(db, orders, origin) {
+  const ids = [...new Set(orders.flatMap(order => order.items.map(item => item.menuItemId)).filter(Boolean))];
+  if (!ids.length) return orders;
+  const menu = await db.orderingMenuItem.findMany({
+    where: { id: { in: ids } }, select: { id: true, imageVersion: true },
+  });
+  const images = new Map(menu.map(item => [item.id, item.imageVersion
+    ? new URL(`/api/ordering-images/${item.id}/${item.imageVersion}`, origin).href : null]));
+  return orders.map(order => ({ ...order, items: order.items.map(item => ({
+    ...item, imageUrl: images.get(item.menuItemId) || null,
+  })) }));
+}
+
 export async function cancelKitchenOrder(db, id, data, actor) {
   return db.$transaction(async (tx) => {
     const order = await tx.tableOrder.findUnique({ where: { id } });
@@ -134,14 +147,13 @@ export function mountKitchen(router, db, handler) {
   router.get(
     '/kitchen/orders',
     handler(async (req, res) => {
-      res.json(
-        await db.tableOrder.findMany({
+      const orders = await db.tableOrder.findMany({
           where: { status: 'NEW' },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           take: 500,
           include: { table: { select: { number: true, sessionId: true } } },
-        }),
-      );
+        });
+      res.json(await withKitchenImages(db, orders, process.env.POS_ORIGIN || `${req.protocol}://${req.get('host')}`));
     }),
   );
   router.get(
